@@ -92,7 +92,7 @@ struct TextBasedRenderer: RendererProtocol {
     func render(structured: StructuredSwiftRepresentation, config: Config, diagnostics: any DiagnosticCollector) throws
         -> InMemoryOutputFile
     {
-        let namedFile = structured.file
+        let namedFile = structured.files[0]
         renderFile(namedFile.contents)
         let string = writer.rendered()
         return InMemoryOutputFile(baseName: namedFile.name, contents: Data(string.utf8))
@@ -157,9 +157,10 @@ struct TextBasedRenderer: RendererProtocol {
         }
 
         func render(preconcurrency: Bool) {
+            let exportedPrefix = description.exported ? "@_exported " : ""
             let spiPrefix = description.spi.map { "@_spi(\($0)) " } ?? ""
             let preconcurrencyPrefix = preconcurrency ? "@preconcurrency " : ""
-            let attributePrefix = "\(preconcurrencyPrefix)\(spiPrefix)"
+            let attributePrefix = "\(preconcurrencyPrefix)\(exportedPrefix)\(spiPrefix)"
             if let moduleTypes = description.moduleTypes {
                 for type in moduleTypes { writer.writeLine("\(attributePrefix)\(accessModifierPrefix)import \(type)") }
             } else {
