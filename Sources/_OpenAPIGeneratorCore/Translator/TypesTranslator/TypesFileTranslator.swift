@@ -111,10 +111,21 @@ struct TypesFileTranslator: FileTranslator {
             naming: naming
         )
 
-        let parameters = try translateComponentParameters(doc.components.parameters)
-        let requestBodies = try translateComponentRequestBodies(doc.components.requestBodies)
-        let responses = try translateComponentResponses(doc.components.responses)
-        let headers = try translateComponentHeaders(doc.components.headers)
+        let parameters = try translateComponentParameters(
+            doc.components.parameters.mapValues { try doc.components.assumeLookupOnce($0) }
+        )
+        let requestBodies = try translateComponentRequestBodies(
+            doc.components.requestBodies.mapValues { try doc.components.assumeLookupOnce($0) }
+        )
+        let responses = try translateComponentResponses(
+            doc.components.responses.mapValues { try doc.components.assumeLookupOnce($0) }
+        )
+        let headers = try translateComponentHeaders(
+            doc.components.headers.mapValues {
+                (header: Either<OpenAPI.Reference<OpenAPI.Header>, OpenAPI.Header>) in
+                try doc.components.assumeLookupOnce(header)
+            }
+        )
 
         var allFiles: [NamedFileDescription] = []
 
