@@ -67,20 +67,24 @@ struct SchemaDependencyGraph {
 
         if let requestBody = operation.requestBody,
            let resolved = resolve(requestBody, in: components) {
-            for (_, content) in resolved.content {
-                collectContentSchemaRefs(content, into: &refs)
+            for (_, contentEither) in resolved.content {
+                if let content = try? components.assumeLookupOnce(contentEither) {
+                    collectContentSchemaRefs(content, into: &refs)
+                }
             }
         }
 
         for (_, responseRef) in operation.responses {
             if let resolved = resolve(responseRef, in: components) {
-                for (_, content) in resolved.content {
-                    collectContentSchemaRefs(content, into: &refs)
+                for (_, contentEither) in resolved.content {
+                    if let content = try? components.assumeLookupOnce(contentEither) {
+                        collectContentSchemaRefs(content, into: &refs)
+                    }
                 }
                 if let headers = resolved.headers {
                     for (_, headerRef) in headers {
                         if let header = resolve(headerRef, in: components) {
-                            collectHeaderSchemaRefs(header, into: &refs)
+                            collectHeaderSchemaRefs(header, in: components, into: &refs)
                         }
                     }
                 }
@@ -93,8 +97,10 @@ struct SchemaDependencyGraph {
                 case .a(let schemaContext):
                     collectSchemaOrRefRefs(schemaContext.schema, into: &refs)
                 case .b(let contentMap):
-                    for (_, content) in contentMap {
-                        collectContentSchemaRefs(content, into: &refs)
+                    for (_, contentEither) in contentMap {
+                        if let content = try? components.assumeLookupOnce(contentEither) {
+                            collectContentSchemaRefs(content, into: &refs)
+                        }
                     }
                 }
             }
@@ -120,16 +126,22 @@ struct SchemaDependencyGraph {
 
     private static func collectContentSchemaRefs(_ content: OpenAPI.Content, into acc: inout Set<String>) {
         guard let schema = content.schema else { return }
-        collectSchemaOrRefRefs(schema, into: &acc)
+        collectSchemaRefs(schema, into: &acc)
     }
 
-    private static func collectHeaderSchemaRefs(_ header: OpenAPI.Header, into acc: inout Set<String>) {
+    private static func collectHeaderSchemaRefs(
+        _ header: OpenAPI.Header,
+        in components: OpenAPI.Components,
+        into acc: inout Set<String>
+    ) {
         switch header.schemaOrContent {
         case .a(let schemaContext):
             collectSchemaOrRefRefs(schemaContext.schema, into: &acc)
         case .b(let contentMap):
-            for (_, content) in contentMap {
-                collectContentSchemaRefs(content, into: &acc)
+            for (_, contentEither) in contentMap {
+                if let content = try? components.assumeLookupOnce(contentEither) {
+                    collectContentSchemaRefs(content, into: &acc)
+                }
             }
         }
     }
