@@ -37,7 +37,7 @@ extension _GenerateOptions {
         let resolvedNameOverrides = resolvedNameOverrides(config)
         let resolvedTypeOverrides = resolvedTypeOverrides(config)
         let resolvedFeatureFlags = resolvedFeatureFlags(config)
-        let resolvedOutputOptions = resolvedOutputOptions(config)
+        let resolvedOutputOptions = try resolvedOutputOptions(config)
         guard pluginSource != .build || resolvedOutputOptions.types?.fileSplitting == nil else {
             throw ValidationError(
                 "Types file splitting is not supported by the build tool plugin yet. Run swift-openapi-generator directly or use the command plugin to generate split files."

@@ -79,4 +79,11 @@ final class Test_Config: Test_Core {
             ]
         )
     }
+
+    func testTypesFileSplittingConfigOptions() {
+        let config = TypesFileSplittingConfig(strategy: .slices, slices: .init(count: 4))
+
+        XCTAssertEqual(config.strategy, .slices)
+        XCTAssertEqual(config.slices, .init(count: 4))
+    }
 }

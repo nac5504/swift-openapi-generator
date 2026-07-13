@@ -43,16 +43,22 @@ public struct TypesFileSplittingConfig: Sendable, Codable, Equatable {
     /// Options for the namespace file splitting strategy.
     public var namespace: NamespaceTypesFileSplittingOptions?
 
+    /// Options for the slices file splitting strategy.
+    public var slices: SlicesTypesFileSplittingOptions?
+
     /// Creates a file splitting configuration.
     /// - Parameters:
     ///   - strategy: The strategy to use when splitting generated types across files.
     ///   - namespace: Options for the namespace file splitting strategy.
+    ///   - slices: Options for the slices file splitting strategy.
     public init(
         strategy: TypesFileSplittingStrategy,
-        namespace: NamespaceTypesFileSplittingOptions? = nil
+        namespace: NamespaceTypesFileSplittingOptions? = nil,
+        slices: SlicesTypesFileSplittingOptions? = nil
     ) {
         self.strategy = strategy
         self.namespace = namespace
+        self.slices = slices
     }
 }
 
@@ -91,11 +97,25 @@ public enum NamespaceTypesFileSplittingDepth: Int, Sendable, Codable, Equatable 
     }
 }
 
+/// Options for the slices file splitting strategy.
+public struct SlicesTypesFileSplittingOptions: Sendable, Codable, Equatable {
+
+    /// The requested number of similarly sized files.
+    public var count: Int
+
+    /// Creates slices file splitting options.
+    /// - Parameter count: The requested number of similarly sized files.
+    public init(count: Int) { self.count = count }
+}
+
 /// A strategy for splitting generated types across files.
 public enum TypesFileSplittingStrategy: String, Sendable, Codable, Equatable, CaseIterable {
 
     /// Splits generated types into files by namespace.
     case namespace
+
+    /// Splits generated types into a requested number of similarly sized files.
+    case slices
 }
 
 extension TypesFileSplittingConfig {
@@ -119,6 +139,11 @@ extension TypesFileSplittingConfig {
                 GeneratorMode.outputFileName(primaryTypesFileName, "Components", "Headers"),
             ]
             return depth1Files + (namespace?.depth == .two ? depth2Files : [])
+        case .slices:
+            guard let count = slices?.count, count > 0 else { return [] }
+            return (1...count).map { index in
+                GeneratorMode.outputFileName(primaryTypesFileName, "Slice\(index)")
+            }
         }
     }
 }

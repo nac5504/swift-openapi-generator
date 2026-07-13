@@ -182,12 +182,48 @@ final class Test_GenerateOptions: XCTestCase {
         XCTAssertEqual(config.output?.types?.fileSplitting?.namespace, .init(depth: .one))
     }
 
+    func testLoadedConfigDecodesSlicesFileSplittingOptions() throws {
+        let configURL = try makeTemporaryConfig(
+            """
+            generate:
+              - types
+            output:
+              types:
+                fileSplitting:
+                  strategy: slices
+                  slices:
+                    count: 4
+            """
+        )
+        let options = try _GenerateOptions.parse(["openapi.yaml", "--config", configURL.path])
+        let config = try XCTUnwrap(options.loadedConfig())
+
+        XCTAssertEqual(config.output?.types?.fileSplitting?.strategy, .slices)
+        XCTAssertEqual(config.output?.types?.fileSplitting?.slices, .init(count: 4))
+    }
+
     func testTypesFileSplittingOptionResolvesOutputOptions() throws {
         let options = try _GenerateOptions.parse([
             "openapi.yaml", "--mode", "types", "--types-file-splitting", "namespace",
         ])
 
-        XCTAssertEqual(options.resolvedOutputOptions(nil).types?.fileSplitting?.strategy, .namespace)
+        XCTAssertEqual(try options.resolvedOutputOptions(nil).types?.fileSplitting?.strategy, .namespace)
+    }
+
+    func testSlicesFileSplittingOptionResolvesOutputOptions() throws {
+        let options = try _GenerateOptions.parse([
+            "openapi.yaml",
+            "--mode",
+            "types",
+            "--types-file-splitting",
+            "slices",
+            "--types-file-splitting-slice-count",
+            "4",
+        ])
+
+        let fileSplitting = try options.resolvedOutputOptions(nil).types?.fileSplitting
+        XCTAssertEqual(fileSplitting?.strategy, .slices)
+        XCTAssertEqual(fileSplitting?.slices, .init(count: 4))
     }
 
     func testTypesFileSplittingIsRejectedForBuildToolPlugin() async throws {
