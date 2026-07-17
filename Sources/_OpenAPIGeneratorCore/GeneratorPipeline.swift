@@ -48,7 +48,7 @@ struct GeneratorPipeline {
     typealias TranslatedOutput = StructuredSwiftRepresentation
 
     /// An output of the rendering phase, usually written to disk.
-    typealias RenderedOutput = RenderedSwiftOutputs
+    typealias RenderedOutput = RenderedSwiftRepresentation
 
     /// The parsing stage.
     var parseOpenAPIFileStage: GeneratorPipelineStage<RawInput, ParsedInput>
@@ -80,32 +80,13 @@ struct GeneratorPipeline {
 ///   - diagnostics: A collector to which the generator emits diagnostics.
 /// - Throws: When encountering a non-recoverable error. For recoverable
 /// issues, emits issues into the diagnostics collector.
-/// - Returns: The raw contents of the generated Swift file.
-public func runGenerator(input: InMemoryInputFile, config: Config, diagnostics: any DiagnosticCollector) throws
-    -> InMemoryOutputFile
-{
-    let outputFiles = try runGeneratorOutputs(input: input, config: config, diagnostics: diagnostics)
-    guard outputFiles.count == 1, let outputFile = outputFiles.first else {
-        throw GenericError(message: "Expected a single generated output file, got \(outputFiles.count).")
-    }
-    return outputFile
-}
-
-/// Runs the generator logic with the specified inputs and returns every
-/// generated Swift file.
-/// - Parameters:
-///   - input: The raw file contents of the OpenAPI document.
-///   - config: A set of configuration values for the generator.
-///   - diagnostics: A collector to which the generator emits diagnostics.
-/// - Throws: When encountering a non-recoverable error. For recoverable
-/// issues, emits issues into the diagnostics collector.
 /// - Returns: The raw contents of all generated Swift files.
-public func runGeneratorOutputs(
+public func runGenerator(
     input: InMemoryInputFile,
     config: Config,
     diagnostics: any DiagnosticCollector
 ) throws -> [InMemoryOutputFile] {
-    try makeGeneratorPipeline(config: config, diagnostics: diagnostics).run(input).files
+    try makeGeneratorPipeline(config: config, diagnostics: diagnostics).run(input)
 }
 
 /// Creates a new pipeline instance.
@@ -152,14 +133,9 @@ func makeGeneratorPipeline(
         renderSwiftFilesStage: .init(
             preTransitionHooks: [],
             transition: { input in
-                let files = try input.files.map { namedFile in
-                    try renderer().render(
-                        structured: .init(file: namedFile),
-                        config: config,
-                        diagnostics: diagnostics
-                    )
+                try input.files.map { namedFile in
+                    try renderer().render(namedFile: namedFile, config: config, diagnostics: diagnostics)
                 }
-                return .init(files: files)
             },
             postTransitionHooks: []
         )

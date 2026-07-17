@@ -46,13 +46,18 @@ final class Test_Config: Test_Core {
         XCTAssertEqual(config.output.types?.fileSplitting?.strategy, .namespace)
     }
 
-    func testTypesFileSplittingConfigOptions() {
-        let config = TypesFileSplittingConfig(
-            strategy: .namespace,
-            namespace: .init()
-        )
+    func testGeneratorModeOutputFileNameHelper() {
+        XCTAssertEqual(GeneratorMode.outputFileName("Types"), "Types.swift")
+        XCTAssertEqual(GeneratorMode.outputFileName("Types.swift", "Components"), "Types+Components.swift")
+        XCTAssertEqual(GeneratorMode.outputFileName("Types.swift", "Operations.swift"), "Types+Operations.swift")
+    }
 
-        XCTAssertEqual(config.strategy, .namespace)
-        XCTAssertEqual(config.namespace, .init())
+    func testNamespaceFileSplittingOutputFileNames() {
+        let config = TypesFileSplittingConfig(strategy: .namespace)
+
+        XCTAssertEqual(
+            config.outputFileNames(primaryTypesFileName: "Types.swift"),
+            ["Types.swift", "Types+Components.swift", "Types+Operations.swift"]
+        )
     }
 }

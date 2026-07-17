@@ -40,27 +40,11 @@ public struct TypesFileSplittingConfig: Sendable, Codable, Equatable {
     /// The strategy to use when splitting generated types across files.
     public var strategy: TypesFileSplittingStrategy
 
-    /// Options for the namespace file splitting strategy.
-    public var namespace: NamespaceTypesFileSplittingOptions?
-
     /// Creates a file splitting configuration.
-    /// - Parameters:
-    ///   - strategy: The strategy to use when splitting generated types across files.
-    ///   - namespace: Options for the namespace file splitting strategy.
-    public init(
-        strategy: TypesFileSplittingStrategy,
-        namespace: NamespaceTypesFileSplittingOptions? = nil
-    ) {
+    /// - Parameter strategy: The strategy to use when splitting generated types across files.
+    public init(strategy: TypesFileSplittingStrategy) {
         self.strategy = strategy
-        self.namespace = namespace
     }
-}
-
-/// Options for the namespace file splitting strategy.
-public struct NamespaceTypesFileSplittingOptions: Sendable, Codable, Equatable {
-
-    /// Creates namespace file splitting options.
-    public init() {}
 }
 
 /// A strategy for splitting generated types across files.
@@ -68,4 +52,21 @@ public enum TypesFileSplittingStrategy: String, Sendable, Codable, Equatable, Ca
 
     /// Splits generated types into a small fixed set of files by top-level namespace.
     case namespace
+}
+
+extension TypesFileSplittingConfig {
+
+    /// Returns the Swift output file names emitted by the configuration.
+    /// - Parameter primaryTypesFileName: The file name for the primary generated types file.
+    /// - Returns: The emitted Swift output file names.
+    public func outputFileNames(primaryTypesFileName: String) -> [String] {
+        switch strategy {
+        case .namespace:
+            return [
+                primaryTypesFileName,
+                GeneratorMode.outputFileName(primaryTypesFileName, "Components"),
+                GeneratorMode.outputFileName(primaryTypesFileName, "Operations"),
+            ]
+        }
+    }
 }

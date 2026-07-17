@@ -126,10 +126,11 @@ output:
   types:
     fileSplitting:
       strategy: namespace
-      namespace: {}
 ```
 
 The same strategy can be enabled from the command line with `--types-file-splitting namespace`.
+
+> Note: Types file splitting is currently supported when running the generator directly or with the command plugin. The build tool plugin does not yet support types file splitting.
 
 ### Document filtering
 
