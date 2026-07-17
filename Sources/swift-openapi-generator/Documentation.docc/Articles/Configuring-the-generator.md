@@ -52,8 +52,9 @@ The configuration file has the following keys:
     - `types` (optional): Options that only affect `types` generation.
         - `fileSplitting` (optional): Splits generated types across multiple files.
             - `strategy` (required): The file splitting strategy. Known values:
-                - `namespace`: Split generated types into a small fixed set of files by top-level namespace.
+                - `namespace`: Split generated types into files by namespace.
             - `namespace` (optional): Options for the `namespace` strategy.
+                - `depth` (optional): The namespace depth to split. Defaults to `1`. Set to `2` to split component types into second-level namespace files. Unsupported values are treated as `1`.
 
 ### Example config files
 
@@ -126,9 +127,13 @@ output:
   types:
     fileSplitting:
       strategy: namespace
+      namespace:
+        depth: 2
 ```
 
 The same strategy can be enabled from the command line with `--types-file-splitting namespace`.
+By default, this emits top-level namespace files such as `Types.swift`, `Types+Components.swift`, and `Types+Operations.swift`.
+With `namespace.depth: 2`, this also emits component namespace files such as `Types+Components+Schemas.swift`.
 
 > Note: Types file splitting is currently supported when running the generator directly or with the command plugin. The build tool plugin does not yet support types file splitting.
 
