@@ -53,8 +53,11 @@ The configuration file has the following keys:
         - `fileSplitting` (optional): Splits generated types across multiple files.
             - `strategy` (required): The file splitting strategy. Known values:
                 - `namespace`: Split generated types into files by namespace.
+                - `slices`: Split generated types into a requested number of similarly sized files.
             - `namespace` (optional): Options for the `namespace` strategy.
                 - `depth` (optional): The namespace depth to split. Defaults to `1`. Set to `2` to split component types into second-level namespace files. Unsupported values are treated as `1`.
+            - `slices` (optional): Options for the `slices` strategy.
+                - `count` (required): The requested number of similarly sized files.
 
 ### Example config files
 

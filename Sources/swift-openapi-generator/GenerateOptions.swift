@@ -53,6 +53,9 @@ struct _GenerateOptions: ParsableArguments {
         help:
             "Split generated types across files using the specified strategy. Options: \(TypesFileSplittingStrategy.prettyListing)."
     ) var typesFileSplitting: TypesFileSplittingStrategy?
+
+    @Option(help: "The requested number of files when using --types-file-splitting slices.")
+    var typesFileSplittingSliceCount: Int?
 }
 
 extension AccessModifier: ExpressibleByArgument {}
@@ -160,9 +163,9 @@ extension _GenerateOptions {
     /// Returns the output options requested by the user.
     /// - Parameter config: The configuration specified by the user.
     /// - Returns: Output options requested by the user.
-    func resolvedOutputOptions(_ config: _UserConfig?) -> OutputOptions {
+    func resolvedOutputOptions(_ config: _UserConfig?) throws -> OutputOptions {
         var output = config?.output ?? .init()
-        if let fileSplitting = resolvedTypesFileSplittingConfig() {
+        if let fileSplitting = try resolvedTypesFileSplittingConfig() {
             var typesOutput = output.types ?? .init()
             typesOutput.fileSplitting = fileSplitting
             output.types = typesOutput
@@ -172,11 +175,18 @@ extension _GenerateOptions {
 
     /// Returns the types file splitting configuration requested from command-line options.
     /// - Returns: Types file splitting configuration requested from command-line options.
-    func resolvedTypesFileSplittingConfig() -> TypesFileSplittingConfig? {
+    func resolvedTypesFileSplittingConfig() throws -> TypesFileSplittingConfig? {
         guard let typesFileSplitting else { return nil }
         switch typesFileSplitting {
         case .namespace:
             return .init(strategy: .namespace)
+        case .slices:
+            guard let typesFileSplittingSliceCount else {
+                throw ValidationError(
+                    "--types-file-splitting-slice-count is required when using --types-file-splitting slices."
+                )
+            }
+            return .init(strategy: .slices, slices: .init(count: typesFileSplittingSliceCount))
         }
     }
 

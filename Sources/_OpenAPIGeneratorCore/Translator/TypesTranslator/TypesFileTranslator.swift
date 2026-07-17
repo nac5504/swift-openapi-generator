@@ -55,13 +55,21 @@ struct TypesFileTranslator: FileTranslator {
         let rootCodeBlocks: [CodeBlock] = [
             .declaration(apiProtocol), .declaration(apiProtocolExtension), .declaration(serversDecl),
         ]
+        let codeBlocks = rootCodeBlocks + [components, operations]
         let typesFile = FileDescription(
             topComment: topComment,
             imports: imports,
-            codeBlocks: rootCodeBlocks + [components, operations]
+            codeBlocks: codeBlocks
         )
 
-        if let fileSplitting = config.output.types?.fileSplitting, fileSplitting.strategy == .namespace {
+        guard let fileSplitting = config.output.types?.fileSplitting else {
+            return StructuredSwiftRepresentation(
+                files: [.init(name: GeneratorMode.types.outputFileName, contents: typesFile)]
+            )
+        }
+
+        switch fileSplitting.strategy {
+        case .namespace:
             let fileNames = fileSplitting.outputFileNames(primaryTypesFileName: GeneratorMode.types.outputFileName)
             let isDepth2 = fileSplitting.namespace?.depth == .two
             let componentsRoot = CodeBlock.declaration(
@@ -127,8 +135,44 @@ struct TypesFileTranslator: FileTranslator {
                     ),
                 ] + componentNamespaceFiles
             )
+        case .slices:
+            guard let options = fileSplitting.slices else {
+                throw GenericError(message: "Missing options for the slices types file splitting strategy.")
+            }
+            guard options.count > 0 else {
+                throw GenericError(message: "Expected slices file splitting count to be greater than zero.")
+            }
+            guard options.count <= codeBlocks.count else {
+                throw GenericError(
+                    message:
+                        "Expected slices file splitting count to be no greater than the number of top-level declarations in Types.swift."
+                )
+            }
+            let slices = codeBlocks.slices(count: options.count)
+            let fileNames = fileSplitting.outputFileNames(primaryTypesFileName: GeneratorMode.types.outputFileName)
+            return StructuredSwiftRepresentation(
+                files: slices.enumerated().map { index, codeBlocks in
+                    .init(
+                        name: fileNames[index],
+                        contents: .init(topComment: topComment, imports: imports, codeBlocks: codeBlocks)
+                    )
+                }
+            )
         }
+    }
+}
 
-        return StructuredSwiftRepresentation(files: [.init(name: GeneratorMode.types.outputFileName, contents: typesFile)])
+extension Array {
+    /// Splits the array into a requested number of similarly sized slices.
+    fileprivate func slices(count: Int) -> [[Element]] {
+        let baseCount = self.count / count
+        let extraCount = self.count % count
+        var startIndex = 0
+        return (0..<count).map { sliceIndex in
+            let sliceCount = baseCount + (sliceIndex < extraCount ? 1 : 0)
+            let endIndex = startIndex + sliceCount
+            defer { startIndex = endIndex }
+            return Array(self[startIndex..<endIndex])
+        }
     }
 }

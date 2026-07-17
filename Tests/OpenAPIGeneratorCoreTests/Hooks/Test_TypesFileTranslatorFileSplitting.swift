@@ -166,6 +166,66 @@ final class Test_TypesFileTranslatorFileSplitting: Test_Core {
         XCTAssertEqual(outputs.map(\.baseName), ["Types.swift"])
     }
 
+    func testSlicesSplittingProducesRequestedNumberOfFiles() throws {
+        let input = InMemoryInputFile(
+            absolutePath: URL(string: "openapi.yaml")!,
+            contents: Data(Self.source.utf8)
+        )
+        let diagnostics = AccumulatingDiagnosticCollector()
+        let outputs = try runGenerator(
+            input: input,
+            config: Self.splitConfig(strategy: .slices, slices: .init(count: 2)),
+            diagnostics: diagnostics
+        )
+
+        XCTAssertEqual(diagnostics.diagnostics.count, 0)
+        XCTAssertEqual(outputs.map(\.baseName), ["Types+Slice1.swift", "Types+Slice2.swift"])
+
+        let outputByName = Self.outputByName(outputs)
+        let slice1Source = try XCTUnwrap(outputByName["Types+Slice1.swift"])
+        let slice2Source = try XCTUnwrap(outputByName["Types+Slice2.swift"])
+
+        XCTAssertTrue(slice1Source.contains("import OpenAPIRuntime"))
+        XCTAssertTrue(slice2Source.contains("import OpenAPIRuntime"))
+
+        XCTAssertTrue(slice1Source.contains("protocol APIProtocol"))
+        XCTAssertFalse(slice1Source.contains("enum Components"))
+        XCTAssertFalse(slice1Source.contains("enum Operations"))
+        XCTAssertFalse(slice1Source.contains("struct User"))
+
+        XCTAssertTrue(slice2Source.contains("enum Components"))
+        XCTAssertTrue(slice2Source.contains("struct User"))
+        XCTAssertTrue(slice2Source.contains("enum Operations"))
+        XCTAssertFalse(slice2Source.contains("protocol APIProtocol"))
+
+        let joinedSources = [slice1Source, slice2Source].joined(separator: "\n")
+        XCTAssertTrue(joinedSources.contains("protocol APIProtocol"))
+        XCTAssertTrue(joinedSources.contains("enum Components"))
+        XCTAssertTrue(joinedSources.contains("struct User"))
+        XCTAssertTrue(joinedSources.contains("enum Operations"))
+    }
+
+    func testSlicesSplittingRequiresValidCount() throws {
+        let input = InMemoryInputFile(
+            absolutePath: URL(string: "openapi.yaml")!,
+            contents: Data(Self.source.utf8)
+        )
+
+        XCTAssertThrowsError(
+            try runGenerator(
+                input: input,
+                config: Self.splitConfig(strategy: .slices, slices: .init(count: 0)),
+                diagnostics: AccumulatingDiagnosticCollector()
+            )
+        ) { error in
+            XCTAssertTrue(String(describing: error).contains("greater than zero"))
+        }
+    }
+
+    private static func splitConfig(strategy: TypesFileSplittingStrategy) -> Config {
+        splitConfig(strategy: strategy, namespace: nil, slices: nil)
+    }
+
     private static func outputByName(_ outputs: [InMemoryOutputFile]) -> [String: String] {
         Dictionary(uniqueKeysWithValues: outputs.map { output in
             (output.baseName, String(decoding: output.contents, as: UTF8.self))
@@ -190,7 +250,8 @@ final class Test_TypesFileTranslatorFileSplitting: Test_Core {
 
     private static func splitConfig(
         strategy: TypesFileSplittingStrategy,
-        namespace: NamespaceTypesFileSplittingOptions? = nil
+        namespace: NamespaceTypesFileSplittingOptions? = nil,
+        slices: SlicesTypesFileSplittingOptions? = nil
     ) -> Config {
         .init(
             mode: .types,
@@ -198,7 +259,11 @@ final class Test_TypesFileTranslatorFileSplitting: Test_Core {
             namingStrategy: .defensive,
             output: .init(
                 types: .init(
-                    fileSplitting: .init(strategy: strategy, namespace: namespace)
+                    fileSplitting: .init(
+                        strategy: strategy,
+                        namespace: namespace,
+                        slices: slices
+                    )
                 )
             )
         )
