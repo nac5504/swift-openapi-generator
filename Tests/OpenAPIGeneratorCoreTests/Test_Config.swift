@@ -41,9 +41,10 @@ final class Test_Config: Test_Core {
             mode: .types,
             access: .public,
             namingStrategy: .defensive,
-            output: .init(types: .init(fileSplitting: .init(strategy: .namespace)))
+            output: .init(types: .init(fileSplitting: .init(strategy: .namespace, namespace: .init(depth: .two))))
         )
         XCTAssertEqual(config.output.types?.fileSplitting?.strategy, .namespace)
+        XCTAssertEqual(config.output.types?.fileSplitting?.namespace, .init(depth: .two))
     }
 
     func testGeneratorModeOutputFileNameHelper() {
@@ -58,6 +59,24 @@ final class Test_Config: Test_Core {
         XCTAssertEqual(
             config.outputFileNames(primaryTypesFileName: "Types.swift"),
             ["Types.swift", "Types+Components.swift", "Types+Operations.swift"]
+        )
+    }
+
+    func testNamespaceDepth2FileSplittingOutputFileNames() {
+        let config = TypesFileSplittingConfig(strategy: .namespace, namespace: .init(depth: .two))
+
+        XCTAssertEqual(
+            config.outputFileNames(primaryTypesFileName: "Types.swift"),
+            [
+                "Types.swift",
+                "Types+Components.swift",
+                "Types+Operations.swift",
+                "Types+Components+Schemas.swift",
+                "Types+Components+Parameters.swift",
+                "Types+Components+RequestBodies.swift",
+                "Types+Components+Responses.swift",
+                "Types+Components+Headers.swift",
+            ]
         )
     }
 }

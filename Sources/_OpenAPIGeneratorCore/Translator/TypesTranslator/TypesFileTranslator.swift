@@ -43,22 +43,66 @@ struct TypesFileTranslator: FileTranslator {
         let serversDecl = translateServers(doc.servers)
 
         let multipartSchemaNames = try parseSchemaNamesUsedInMultipart(paths: doc.paths, components: doc.components)
+        let componentNamespaces = try translateComponentNamespaces(
+            doc.components,
+            multipartSchemaNames: multipartSchemaNames
+        )
         let components = try translateComponents(doc.components, multipartSchemaNames: multipartSchemaNames)
 
         let operationDescriptions = try OperationDescription.all(from: doc.paths, in: doc.components, context: context)
         let operations = try translateOperations(operationDescriptions)
 
+        let rootCodeBlocks: [CodeBlock] = [
+            .declaration(apiProtocol), .declaration(apiProtocolExtension), .declaration(serversDecl),
+        ]
         let typesFile = FileDescription(
             topComment: topComment,
             imports: imports,
-            codeBlocks: [
-                .declaration(apiProtocol), .declaration(apiProtocolExtension), .declaration(serversDecl), components,
-                operations,
-            ]
+            codeBlocks: rootCodeBlocks + [components, operations]
         )
 
         if let fileSplitting = config.output.types?.fileSplitting, fileSplitting.strategy == .namespace {
             let fileNames = fileSplitting.outputFileNames(primaryTypesFileName: GeneratorMode.types.outputFileName)
+            let isDepth2 = fileSplitting.namespace?.depth == .two
+            let componentsRoot = CodeBlock.declaration(
+                .commentable(
+                    .doc(
+                        """
+                        Types generated from the components section of the OpenAPI document.
+                        """
+                    ),
+                    .enum(
+                        .init(
+                            accessModifier: config.access,
+                            name: Constants.Components.namespace,
+                            members: []
+                        )
+                    )
+                )
+            )
+            let componentNamespaceFiles: [NamedFileDescription] = isDepth2
+                ? zip(
+                    fileNames.dropFirst(3),
+                    componentNamespaces
+                ).map { fileName, namespace in
+                    .init(
+                        name: fileName,
+                        contents: .init(
+                            topComment: topComment,
+                            imports: imports,
+                            codeBlocks: [
+                                .declaration(
+                                    .extension(
+                                        accessModifier: config.access,
+                                        onType: Constants.Components.namespace,
+                                        declarations: [namespace]
+                                    )
+                                )
+                            ]
+                        )
+                    )
+                }
+                : []
             return StructuredSwiftRepresentation(
                 files: [
                     .init(
@@ -66,20 +110,22 @@ struct TypesFileTranslator: FileTranslator {
                         contents: .init(
                             topComment: topComment,
                             imports: imports,
-                            codeBlocks: [
-                                .declaration(apiProtocol), .declaration(apiProtocolExtension), .declaration(serversDecl),
-                            ]
+                            codeBlocks: rootCodeBlocks
                         )
                     ),
                     .init(
                         name: fileNames[1],
-                        contents: .init(topComment: topComment, imports: imports, codeBlocks: [components])
+                        contents: .init(
+                            topComment: topComment,
+                            imports: imports,
+                            codeBlocks: [isDepth2 ? componentsRoot : components]
+                        )
                     ),
                     .init(
                         name: fileNames[2],
                         contents: .init(topComment: topComment, imports: imports, codeBlocks: [operations])
                     ),
-                ]
+                ] + componentNamespaceFiles
             )
         }
 

@@ -15,19 +15,16 @@ import OpenAPIKit
 
 extension TypesFileTranslator {
 
-    /// Returns a declaration of a code block containing the components
-    /// namespace, which contains all the reusable component namespaces, such
-    /// as for schemas, parameters, and response headers.
+    /// Returns the declarations nested under the components namespace.
     /// - Parameters:
     ///   - components: The components defined in the OpenAPI document.
     ///   - multipartSchemaNames: The names of schemas used as root multipart content.
-    /// - Returns: A code block with the enum representing the components
-    /// namespace.
+    /// - Returns: Declarations representing the second-level component namespaces.
     /// - Throws: An error if there's an issue during translation of components.
-    func translateComponents(_ components: OpenAPI.Components, multipartSchemaNames: Set<OpenAPI.ComponentKey>) throws
-        -> CodeBlock
-    {
-
+    func translateComponentNamespaces(
+        _ components: OpenAPI.Components,
+        multipartSchemaNames: Set<OpenAPI.ComponentKey>
+    ) throws -> [Declaration] {
         let schemas = try translateSchemas(components.schemas, multipartSchemaNames: multipartSchemaNames)
         let resolvedParameters = try components.parameters.mapValues { try components.assumeLookupOnce($0) }
         let parameters = try translateComponentParameters(resolvedParameters)
@@ -41,6 +38,24 @@ extension TypesFileTranslator {
         }
         let headers = try translateComponentHeaders(resolvedHeaders)
 
+        return [schemas, parameters, requestBodies, responses, headers]
+    }
+
+    /// Returns a declaration of a code block containing the components
+    /// namespace, which contains all the reusable component namespaces, such
+    /// as for schemas, parameters, and response headers.
+    /// - Parameters:
+    ///   - components: The components defined in the OpenAPI document.
+    ///   - multipartSchemaNames: The names of schemas used as root multipart content.
+    /// - Returns: A code block with the enum representing the components
+    /// namespace.
+    /// - Throws: An error if there's an issue during translation of components.
+    func translateComponents(_ components: OpenAPI.Components, multipartSchemaNames: Set<OpenAPI.ComponentKey>) throws
+        -> CodeBlock
+    {
+
+        let namespaces = try translateComponentNamespaces(components, multipartSchemaNames: multipartSchemaNames)
+
         let componentsDecl: Declaration = .commentable(
             .doc(
                 """
@@ -50,8 +65,8 @@ extension TypesFileTranslator {
             .enum(
                 .init(
                     accessModifier: config.access,
-                    name: "Components",
-                    members: [schemas, parameters, requestBodies, responses, headers]
+                    name: Constants.Components.namespace,
+                    members: namespaces
                 )
             )
         )

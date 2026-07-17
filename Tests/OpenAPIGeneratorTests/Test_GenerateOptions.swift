@@ -151,12 +151,35 @@ final class Test_GenerateOptions: XCTestCase {
               types:
                 fileSplitting:
                   strategy: namespace
+                  namespace:
+                    depth: 2
             """
         )
         let options = try _GenerateOptions.parse(["openapi.yaml", "--config", configURL.path])
         let config = try XCTUnwrap(options.loadedConfig())
 
         XCTAssertEqual(config.output?.types?.fileSplitting?.strategy, .namespace)
+        XCTAssertEqual(config.output?.types?.fileSplitting?.namespace, .init(depth: .two))
+    }
+
+    func testLoadedConfigDefaultsInvalidNamespaceDepthToOne() throws {
+        let configURL = try makeTemporaryConfig(
+            """
+            generate:
+              - types
+            output:
+              types:
+                fileSplitting:
+                  strategy: namespace
+                  namespace:
+                    depth: 3
+            """
+        )
+        let options = try _GenerateOptions.parse(["openapi.yaml", "--config", configURL.path])
+        let config = try XCTUnwrap(options.loadedConfig())
+
+        XCTAssertEqual(config.output?.types?.fileSplitting?.strategy, .namespace)
+        XCTAssertEqual(config.output?.types?.fileSplitting?.namespace, .init(depth: .one))
     }
 
     func testTypesFileSplittingOptionResolvesOutputOptions() throws {

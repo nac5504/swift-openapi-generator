@@ -40,17 +40,61 @@ public struct TypesFileSplittingConfig: Sendable, Codable, Equatable {
     /// The strategy to use when splitting generated types across files.
     public var strategy: TypesFileSplittingStrategy
 
+    /// Options for the namespace file splitting strategy.
+    public var namespace: NamespaceTypesFileSplittingOptions?
+
     /// Creates a file splitting configuration.
-    /// - Parameter strategy: The strategy to use when splitting generated types across files.
-    public init(strategy: TypesFileSplittingStrategy) {
+    /// - Parameters:
+    ///   - strategy: The strategy to use when splitting generated types across files.
+    ///   - namespace: Options for the namespace file splitting strategy.
+    public init(
+        strategy: TypesFileSplittingStrategy,
+        namespace: NamespaceTypesFileSplittingOptions? = nil
+    ) {
         self.strategy = strategy
+        self.namespace = namespace
+    }
+}
+
+/// Options for the namespace file splitting strategy.
+public struct NamespaceTypesFileSplittingOptions: Sendable, Codable, Equatable {
+
+    /// The namespace depth to split.
+    public var depth: NamespaceTypesFileSplittingDepth
+
+    /// Creates namespace file splitting options.
+    /// - Parameter depth: The namespace depth to split.
+    public init(depth: NamespaceTypesFileSplittingDepth = .one) { self.depth = depth }
+}
+
+/// The namespace depth to split.
+public enum NamespaceTypesFileSplittingDepth: Int, Sendable, Codable, Equatable {
+
+    /// Split first-level namespaces into separate files.
+    case one = 1
+
+    /// Split first-level namespaces and supported second-level namespaces into separate files.
+    case two = 2
+
+    /// Creates a namespace file splitting depth by decoding an integer raw value.
+    /// Unsupported values default to the first supported depth.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(Int.self)
+        self = Self(rawValue: rawValue) ?? .one
+    }
+
+    /// Encodes the namespace file splitting depth as its integer raw value.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
 /// A strategy for splitting generated types across files.
 public enum TypesFileSplittingStrategy: String, Sendable, Codable, Equatable, CaseIterable {
 
-    /// Splits generated types into a small fixed set of files by top-level namespace.
+    /// Splits generated types into files by namespace.
     case namespace
 }
 
@@ -62,11 +106,19 @@ extension TypesFileSplittingConfig {
     public func outputFileNames(primaryTypesFileName: String) -> [String] {
         switch strategy {
         case .namespace:
-            return [
+            let depth1Files = [
                 primaryTypesFileName,
                 GeneratorMode.outputFileName(primaryTypesFileName, "Components"),
                 GeneratorMode.outputFileName(primaryTypesFileName, "Operations"),
             ]
+            let depth2Files = [
+                GeneratorMode.outputFileName(primaryTypesFileName, "Components", "Schemas"),
+                GeneratorMode.outputFileName(primaryTypesFileName, "Components", "Parameters"),
+                GeneratorMode.outputFileName(primaryTypesFileName, "Components", "RequestBodies"),
+                GeneratorMode.outputFileName(primaryTypesFileName, "Components", "Responses"),
+                GeneratorMode.outputFileName(primaryTypesFileName, "Components", "Headers"),
+            ]
+            return depth1Files + (namespace?.depth == .two ? depth2Files : [])
         }
     }
 }
