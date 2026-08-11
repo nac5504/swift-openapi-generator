@@ -11,6 +11,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
+import Algorithms
 import OpenAPIKit
 
 /// A translator for the generated common types.
@@ -31,6 +32,11 @@ struct TypesFileTranslator: FileTranslator {
     func translateFile(parsedOpenAPI: ParsedOpenAPIRepresentation) throws -> StructuredSwiftRepresentation {
 
         let doc = parsedOpenAPI
+
+        let maxDeclarationsPerFile = config.maxDeclarationsPerFile
+        if let maxDeclarationsPerFile, maxDeclarationsPerFile <= 0 {
+            throw GenericError(message: "Expected output.maxDeclarationsPerFile to be greater than zero.")
+        }
 
         let topComment = self.topComment
 
@@ -57,10 +63,10 @@ struct TypesFileTranslator: FileTranslator {
         let operationDescriptions = try OperationDescription.all(from: doc.paths, in: doc.components, context: context)
         let operations = try translateOperations(operationDescriptions)
 
-        let rootCodeBlocks: [CodeBlock] = [
-            .declaration(apiProtocol), .declaration(apiProtocolExtension), .declaration(serversDecl),
-        ]
         let fileNames = GeneratorMode.types.outputFileNames
+        let typesFileName = fileNames[0]
+        let componentsFileName = fileNames[1]
+        let operationsFileName = fileNames[2]
         let componentsRoot = CodeBlock.declaration(
             .commentable(
                 .doc(
@@ -71,44 +77,108 @@ struct TypesFileTranslator: FileTranslator {
                 .enum(.init(accessModifier: config.access, name: Constants.Components.namespace, members: []))
             )
         )
-        let componentNamespaceFiles: [NamedFileDescription] = componentNamespaces.map { namespace in
-            let fileName = GeneratorMode.outputFileName(
-                GeneratorMode.types.outputFileName,
-                Constants.Components.namespace,
-                namespace.fileNameSuffix
-            )
-            return .init(
-                name: fileName,
-                contents: .init(
-                    topComment: topComment,
-                    imports: splitFileImports,
-                    codeBlocks: [
-                        .declaration(
-                            .extension(
-                                accessModifier: nil,
-                                onType: Constants.Components.namespace,
-                                declarations: [namespace.declaration]
-                            )
-                        )
-                    ]
+        typealias Namespace = (path: [String], baseFileName: String, comment: Comment?, declarations: [Declaration])
+        let namespaces: [Namespace] =
+            [
+                (
+                    path: [Constants.Operations.namespace], baseFileName: operationsFileName,
+                    comment: operations.comment, declarations: operations.namespaceDeclarations
                 )
+            ]
+            + componentNamespaces.map { namespace in
+                let contents = namespace.declaration.namespaceContents
+                return (
+                    path: [Constants.Components.namespace, namespace.fileNameSuffix],
+                    baseFileName: GeneratorMode.outputFileName(componentsFileName, namespace.fileNameSuffix),
+                    comment: contents.comment, declarations: contents.declarations
+                )
+            }
+
+        func namespaceRoot(for namespace: Namespace) -> Declaration {
+            (.commentable(
+                namespace.comment,
+                .enum(.init(accessModifier: config.access, name: namespace.path.last!, members: []))
+            ))
+        }
+
+        let typesRoot: [CodeBlock] =
+            [.declaration(apiProtocol), .declaration(apiProtocolExtension), .declaration(serversDecl), componentsRoot]
+            + namespaces.filter { $0.path.count == 1 }.map { .declaration(namespaceRoot(for: $0)) }
+        let componentNamespacesRoot = CodeBlock.declaration(
+            .extension(
+                accessModifier: nil,
+                onType: Constants.Components.namespace,
+                declarations: namespaces.filter { $0.path.dropLast() == [Constants.Components.namespace] }
+                    .map(namespaceRoot)
+            )
+        )
+        let namespaceFiles = namespaces.flatMap { namespace in
+            splitFiles(
+                for: namespace.declarations,
+                extending: namespace.path.joined(separator: "."),
+                baseFileName: namespace.baseFileName
             )
         }
+
+        func splitFiles(for declarations: [Declaration], extending namespace: String, baseFileName: String)
+            -> [NamedFileDescription]
+        {
+            let declarationChunks =
+                maxDeclarationsPerFile.map { declarations.chunks(ofCount: $0).map(Array.init) } ?? [declarations]
+            // Preserve the unsuffixed namespace file even when there are no declarations.
+            return (declarationChunks.isEmpty ? [declarations] : declarationChunks).enumerated()
+                .map { splitIndex, declarations in
+                    NamedFileDescription(
+                        name: splitIndex == 0
+                            ? baseFileName : GeneratorMode.outputFileName(baseFileName, String(splitIndex)),
+                        contents: .init(
+                            topComment: topComment,
+                            imports: splitFileImports,
+                            codeBlocks: [
+                                .declaration(
+                                    .extension(accessModifier: nil, onType: namespace, declarations: declarations)
+                                )
+                            ]
+                        )
+                    )
+                }
+        }
+
         return StructuredSwiftRepresentation(
             files: [
                 .init(
-                    name: fileNames[0],
-                    contents: .init(topComment: topComment, imports: splitFileImports, codeBlocks: rootCodeBlocks)
+                    name: typesFileName,
+                    contents: .init(topComment: topComment, imports: splitFileImports, codeBlocks: typesRoot)
                 ),
                 .init(
-                    name: fileNames[1],
-                    contents: .init(topComment: topComment, imports: splitFileImports, codeBlocks: [componentsRoot])
+                    name: componentsFileName,
+                    contents: .init(
+                        topComment: topComment,
+                        imports: splitFileImports,
+                        codeBlocks: [componentNamespacesRoot]
+                    )
                 ),
-                .init(
-                    name: fileNames[2],
-                    contents: .init(topComment: topComment, imports: splitFileImports, codeBlocks: [operations])
-                ),
-            ] + componentNamespaceFiles
+            ] + namespaceFiles
         )
+    }
+}
+
+extension Declaration {
+    /// Returns a component namespace's comment and the declarations to emit in extension files.
+    fileprivate var namespaceContents: (comment: Comment?, declarations: [Declaration]) {
+        guard case .commentable(let comment, .enum(let description)) = self else {
+            preconditionFailure("Expected a commented enum namespace declaration.")
+        }
+        return (comment, description.members)
+    }
+}
+
+extension CodeBlock {
+    /// Returns the operation declarations to emit in extension files.
+    fileprivate var namespaceDeclarations: [Declaration] {
+        guard case .declaration(.enum(let description)) = item else {
+            preconditionFailure("Expected an enum namespace declaration code block.")
+        }
+        return description.members
     }
 }
