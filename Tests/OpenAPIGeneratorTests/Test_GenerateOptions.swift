@@ -90,6 +90,43 @@ final class Test_GenerateOptions: XCTestCase {
         XCTAssertFalse(try Data(contentsOf: temporaryDirectory.appendingPathComponent("Client.swift")).isEmpty)
     }
 
+    func testBuildPluginRejectsDynamicDeclarationSplitting() async throws {
+        do {
+            try await _Tool.runGenerator(
+                doc: URL(fileURLWithPath: "/unused/openapi.yaml"),
+                configs: [
+                    Config(mode: .types, access: .internal, namingStrategy: .defensive, maxDeclarationsPerFile: 100)
+                ],
+                pluginSource: .build,
+                outputDirectory: FileManager.default.temporaryDirectory,
+                isDryRun: false,
+                diagnostics: StdErrPrintingDiagnosticCollector()
+            )
+            XCTFail("Expected dynamic declaration splitting to be rejected by the build-tool plugin.")
+        } catch let error as ArgumentParser.ValidationError {
+            XCTAssertTrue(
+                String(describing: error).contains("maxDeclarationsPerFile is not supported by the build-tool plugin")
+            )
+        }
+    }
+
+    func testLoadsMaximumDeclarationsPerFileFromConfig() throws {
+        let configURL = try makeTemporaryConfig(
+            """
+            generate:
+              - types
+            output:
+              maxDeclarationsPerFile: 100
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: configURL.deletingLastPathComponent()) }
+
+        let options = try _GenerateOptions.parse(["openapi.yaml", "--config", configURL.path])
+        let config = try XCTUnwrap(options.loadedConfig())
+
+        XCTAssertEqual(config.output?.maxDeclarationsPerFile, 100)
+    }
+
     /// Tests that `handleFileOperation` correctly transforms file-not-found errors into user-friendly messages.
     /// This test verifies the error handling works correctly on both macOS and Linux.
     func testHandleFileOperation_FileNotFound() throws {
