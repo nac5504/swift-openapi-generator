@@ -43,6 +43,16 @@ extension _Tool {
         isDryRun: Bool,
         diagnostics: any DiagnosticCollector & Sendable
     ) async throws {
+        if pluginSource == .build,
+            configs.contains(where: {
+                $0.mode == .types && ($0.maxDeclarationsPerFile != nil || $0.dependencyLayerCount != nil)
+            })
+        {
+            throw ValidationError(
+                "Dynamic output splitting is not supported by the build-tool plugin because its generated output files must be declared before generation."
+            )
+        }
+
         let docData: Data
         do { docData = try Data(contentsOf: doc) } catch {
             throw ValidationError("Failed to load the OpenAPI document at path \(doc.path), error: \(error)")
