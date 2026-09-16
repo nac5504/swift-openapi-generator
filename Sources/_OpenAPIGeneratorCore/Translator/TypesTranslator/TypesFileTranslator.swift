@@ -40,6 +40,14 @@ struct TypesFileTranslator: FileTranslator {
         if let dependencyLayerCount, dependencyLayerCount <= 0 {
             throw GenericError(message: "Expected output.dependencyLayerCount to be greater than zero.")
         }
+        if let sharding = config.sharding {
+            try sharding.validate()
+            if let dependencyLayerCount, dependencyLayerCount != sharding.layerCount {
+                throw GenericError(
+                    message: "Expected dependencyLayerCount to equal sharding.typeShardCounts.count when both are set."
+                )
+            }
+        }
 
         let topComment = self.topComment
 
@@ -53,7 +61,7 @@ struct TypesFileTranslator: FileTranslator {
 
         let multipartSchemaNames = try parseSchemaNamesUsedInMultipart(paths: doc.paths, components: doc.components)
         let operationDescriptions = try OperationDescription.all(from: doc.paths, in: doc.components, context: context)
-        if let dependencyLayerCount {
+        if let requestedLayerCount = config.sharding?.layerCount ?? dependencyLayerCount {
             return try translateDependencyLayeredFile(
                 doc: doc,
                 topComment: topComment,
@@ -63,7 +71,8 @@ struct TypesFileTranslator: FileTranslator {
                 serversDecl: serversDecl,
                 multipartSchemaNames: multipartSchemaNames,
                 operationDescriptions: operationDescriptions,
-                requestedLayerCount: dependencyLayerCount
+                requestedLayerCount: requestedLayerCount,
+                shardingConfig: config.sharding
             )
         }
 
@@ -194,7 +203,8 @@ struct TypesFileTranslator: FileTranslator {
         serversDecl: Declaration,
         multipartSchemaNames: Set<OpenAPI.ComponentKey>,
         operationDescriptions: [OperationDescription],
-        requestedLayerCount: Int
+        requestedLayerCount: Int,
+        shardingConfig: ShardingConfig?
     ) throws -> StructuredSwiftRepresentation {
         let graph = SchemaDependencyGraph.build(from: doc.components.schemas)
         let layerBySchema = graph.mappedLayers(requestedLayerCount: requestedLayerCount)
@@ -208,7 +218,9 @@ struct TypesFileTranslator: FileTranslator {
             component in component.compactMap { layerBySchema[$0] }.max() ?? 0
         }
         .mapValues { components in
-            components.map { component in component.sorted().flatMap { schemaGroupsByOwner[$0] ?? [] } }
+            components
+                .sorted { ($0.min() ?? "") < ($1.min() ?? "") }
+                .map { component in component.sorted().flatMap { schemaGroupsByOwner[$0] ?? [] } }
         }
 
         let resolvedParameters = try doc.components.parameters.mapValues { try doc.components.assumeLookupOnce($0) }
@@ -244,7 +256,7 @@ struct TypesFileTranslator: FileTranslator {
         let headerGroups = try translateComponentHeaderDeclarationGroups(resolvedHeaders)
 
         var operationGroupsByLayer: [Int: [[Declaration]]] = [:]
-        for description in operationDescriptions {
+        for description in operationDescriptions.sorted(by: { $0.operationID < $1.operationID }) {
             let layer = highestLayer(for: SchemaDependencyGraph.schemaReferences(in: description))
             operationGroupsByLayer[layer, default: []].append([try translateOperation(description)])
         }
@@ -305,20 +317,41 @@ struct TypesFileTranslator: FileTranslator {
             groupsByLayer: [Int: [[Declaration]]],
             namespace: String,
             baseFileName: String,
-            role: String
+            role: String,
+            shardCounts: [Int]? = nil,
+            maximumFilesPerShard: Int? = nil,
+            fixedLayerCount: Int? = nil
         ) {
-            for layer in groupsByLayer.keys.sorted() where !(groupsByLayer[layer] ?? []).flatMap({ $0 }).isEmpty {
-                files += makeSplitFiles(
-                    for: groupsByLayer[layer] ?? [],
-                    extending: namespace,
-                    baseFileName: baseFileName.appendingFileNameSuffix("Layer\(layer)"),
-                    role: role,
-                    dependencyLayer: layer,
-                    preserveEmptyFile: false,
-                    topComment: topComment,
-                    imports: imports,
-                    maxDeclarationsPerFile: config.maxDeclarationsPerFile
-                )
+            let layers = fixedLayerCount.map { Array(0..<$0) } ?? groupsByLayer.keys.sorted()
+            for layer in layers {
+                let layerGroups = groupsByLayer[layer] ?? []
+                let shardGroups: [[[Declaration]]]
+                if let shardCounts {
+                    shardGroups = Self.balanceDeclarationGroups(
+                        layerGroups,
+                        shardCount: shardCounts[layer]
+                    )
+                } else {
+                    shardGroups = [layerGroups]
+                }
+                for (shard, groups) in shardGroups.enumerated() {
+                    var shardBaseFileName = baseFileName.appendingFileNameSuffix("Layer\(layer)")
+                    if shardCounts != nil {
+                        shardBaseFileName = shardBaseFileName.appendingFileNameSuffix("Shard\(shard)")
+                    }
+                    files += makeSplitFiles(
+                        for: groups,
+                        extending: namespace,
+                        baseFileName: shardBaseFileName,
+                        role: role,
+                        dependencyLayer: layer,
+                        preserveEmptyFile: fixedLayerCount != nil,
+                        topComment: topComment,
+                        imports: imports,
+                        maxDeclarationsPerFile: config.maxDeclarationsPerFile,
+                        maximumFileCount: maximumFilesPerShard
+                    )
+                }
             }
         }
 
@@ -326,7 +359,10 @@ struct TypesFileTranslator: FileTranslator {
             groupsByLayer: schemaLayerGroups,
             namespace: "Components.Schemas",
             baseFileName: OutputFileName.typesComponentsSchemas.rawValue,
-            role: "components.schemas"
+            role: "components.schemas",
+            shardCounts: shardingConfig?.typeShardCounts,
+            maximumFilesPerShard: shardingConfig?.maxFilesPerShard,
+            fixedLayerCount: shardingConfig?.layerCount
         )
         appendLayerFiles(
             groupsByLayer: groupsByLayer(parameterGroups, components: resolvedParameters) {
@@ -334,7 +370,8 @@ struct TypesFileTranslator: FileTranslator {
             },
             namespace: "Components.Parameters",
             baseFileName: OutputFileName.typesComponentsParameters.rawValue,
-            role: "components.parameters"
+            role: "components.parameters",
+            fixedLayerCount: shardingConfig?.layerCount
         )
         appendLayerFiles(
             groupsByLayer: groupsByLayer(requestBodyGroups, components: resolvedRequestBodies) {
@@ -342,7 +379,8 @@ struct TypesFileTranslator: FileTranslator {
             },
             namespace: "Components.RequestBodies",
             baseFileName: OutputFileName.typesComponentsRequestBodies.rawValue,
-            role: "components.requestBodies"
+            role: "components.requestBodies",
+            fixedLayerCount: shardingConfig?.layerCount
         )
         appendLayerFiles(
             groupsByLayer: groupsByLayer(responseGroups, components: resolvedResponses) {
@@ -350,7 +388,8 @@ struct TypesFileTranslator: FileTranslator {
             },
             namespace: "Components.Responses",
             baseFileName: OutputFileName.typesComponentsResponses.rawValue,
-            role: "components.responses"
+            role: "components.responses",
+            fixedLayerCount: shardingConfig?.layerCount
         )
         appendLayerFiles(
             groupsByLayer: groupsByLayer(headerGroups, components: resolvedHeaders) {
@@ -358,13 +397,17 @@ struct TypesFileTranslator: FileTranslator {
             },
             namespace: "Components.Headers",
             baseFileName: OutputFileName.typesComponentsHeaders.rawValue,
-            role: "components.headers"
+            role: "components.headers",
+            fixedLayerCount: shardingConfig?.layerCount
         )
         appendLayerFiles(
             groupsByLayer: operationGroupsByLayer,
             namespace: Constants.Operations.namespace,
             baseFileName: OutputFileName.typesOperations.rawValue,
-            role: "operations"
+            role: "operations",
+            shardCounts: shardingConfig?.operationLayerShardCounts,
+            maximumFilesPerShard: shardingConfig?.maxFilesPerShardOps,
+            fixedLayerCount: shardingConfig?.layerCount
         )
         return .init(files: files)
     }
@@ -378,10 +421,28 @@ struct TypesFileTranslator: FileTranslator {
         preserveEmptyFile: Bool,
         topComment: Comment,
         imports: [ImportDescription],
-        maxDeclarationsPerFile: Int?
+        maxDeclarationsPerFile: Int?,
+        maximumFileCount: Int? = nil
     ) -> [NamedFileDescription] {
         let declarationChunks: [[Declaration]]
-        if let maxDeclarationsPerFile {
+        if let maximumFileCount {
+            let declarations = declarationGroups.flatMap { $0 }
+            let populatedChunks: [[Declaration]]
+            if declarations.isEmpty {
+                populatedChunks = []
+            } else {
+                let minimumDeclarationsPerFile = 12
+                let evenlyDistributedCount = (declarations.count + maximumFileCount - 1) / maximumFileCount
+                let declarationsPerFile = max(minimumDeclarationsPerFile, evenlyDistributedCount)
+                populatedChunks = stride(from: 0, to: declarations.count, by: declarationsPerFile).map { start in
+                    Array(declarations[start..<min(start + declarationsPerFile, declarations.count)])
+                }
+            }
+            declarationChunks = populatedChunks + Array(
+                repeating: [],
+                count: maximumFileCount - populatedChunks.count
+            )
+        } else if let maxDeclarationsPerFile {
             var chunks: [[Declaration]] = []
             for group in declarationGroups {
                 if let last = chunks.indices.last, !chunks[last].isEmpty,
@@ -411,6 +472,53 @@ struct TypesFileTranslator: FileTranslator {
                     metadata: .init(role: role, dependencyLayer: dependencyLayer, declarationChunk: splitIndex)
                 )
             }
+    }
+
+    /// Longest-processing-time packing from the original dependency sharding implementation.
+    private static func balanceDeclarationGroups(
+        _ groups: [[Declaration]],
+        shardCount: Int
+    ) -> [[[Declaration]]] {
+        var shards = Array(
+            repeating: (weight: 0, groups: [(index: Int, group: [Declaration])]()),
+            count: shardCount
+        )
+        var weighted: [(index: Int, group: [Declaration], weight: Int)] = []
+        for (index, group) in groups.enumerated() {
+            var weight = 0
+            for declaration in group { weight += declarationNodeCount(declaration) }
+            weighted.append((index: index, group: group, weight: max(1, weight)))
+        }
+        weighted.sort { lhs, rhs in
+            lhs.weight == rhs.weight ? lhs.index < rhs.index : lhs.weight > rhs.weight
+        }
+        for item in weighted {
+            let shard = shards.indices.min { lhs, rhs in
+                shards[lhs].weight == shards[rhs].weight ? lhs < rhs : shards[lhs].weight < shards[rhs].weight
+            }!
+            shards[shard].weight += item.weight
+            shards[shard].groups.append((index: item.index, group: item.group))
+        }
+        return shards.map { shard in
+            shard.groups.sorted { $0.index < $1.index }.map(\.group)
+        }
+    }
+
+    private static func declarationNodeCount(_ declaration: Declaration) -> Int {
+        switch declaration {
+        case .commentable(_, let inner), .deprecated(_, let inner):
+            return 1 + declarationNodeCount(inner)
+        case .extension(let description):
+            return 1 + description.declarations.reduce(0) { $0 + declarationNodeCount($1) }
+        case .struct(let description):
+            return 1 + description.members.reduce(0) { $0 + declarationNodeCount($1) }
+        case .enum(let description):
+            return 1 + description.members.reduce(0) { $0 + declarationNodeCount($1) }
+        case .protocol(let description):
+            return 1 + description.members.reduce(0) { $0 + declarationNodeCount($1) }
+        case .variable, .typealias, .function, .enumCase:
+            return 1
+        }
     }
 }
 

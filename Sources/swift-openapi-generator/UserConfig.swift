@@ -51,6 +51,9 @@ struct _UserConfig: Codable {
     /// A set of features to explicitly enable.
     var featureFlags: FeatureFlags?
 
+    /// Build-oriented balancing for dependency-layered types output.
+    var sharding: ShardingConfig?
+
     /// Options controlling generated output files.
     var output: Output?
 
@@ -67,6 +70,7 @@ struct _UserConfig: Codable {
         case nameOverrides
         case typeOverrides
         case featureFlags
+        case sharding
         case output
     }
 
@@ -83,5 +87,8 @@ struct _UserConfig: Codable {
 
         /// The maximum number of dependency-ordered layers emitted for generated types.
         var dependencyLayerCount: Int?
+
+        /// A JSON manifest file written beside the generated Swift files for dependency-aware build planning.
+        var dependencyManifest: String?
     }
 }

@@ -26,6 +26,78 @@ public enum NamingStrategy: String, Sendable, Codable, Equatable, CaseIterable {
     case idiomatic
 }
 
+/// Configuration for balancing dependency-layered output into build modules.
+public struct ShardingConfig: Sendable, Codable, Equatable {
+    /// The number of independently compiled schema shards in each dependency layer.
+    public var typeShardCounts: [Int]
+
+    /// The maximum number of generated Swift files emitted for one schema shard.
+    public var maxFilesPerShard: Int
+
+    /// The maximum number of generated Swift files emitted for one operation shard.
+    public var maxFilesPerShardOps: Int
+
+    /// The number of independently compiled operation shards in each dependency layer.
+    public var operationLayerShardCounts: [Int]
+
+    /// An optional consumer module prefix retained for compatibility with the original sharding configuration.
+    public var modulePrefix: String?
+
+    /// The number of dependency layers represented by this configuration.
+    public var layerCount: Int { typeShardCounts.count }
+
+    public init(
+        typeShardCounts: [Int],
+        maxFilesPerShard: Int = 25,
+        maxFilesPerShardOps: Int = 16,
+        operationLayerShardCounts: [Int],
+        modulePrefix: String? = nil
+    ) {
+        self.typeShardCounts = typeShardCounts
+        self.maxFilesPerShard = maxFilesPerShard
+        self.maxFilesPerShardOps = maxFilesPerShardOps
+        self.operationLayerShardCounts = operationLayerShardCounts
+        self.modulePrefix = modulePrefix
+    }
+
+    public enum ValidationError: Error, CustomStringConvertible {
+        case nonPositiveValue(field: String, value: Int)
+        case shardCountMismatch(expected: Int, actual: Int)
+
+        public var description: String {
+            switch self {
+            case .nonPositiveValue(let field, let value): return "\(field) must be greater than zero, got \(value)."
+            case .shardCountMismatch(let expected, let actual):
+                return "operationLayerShardCounts must contain \(expected) entries, got \(actual)."
+            }
+        }
+    }
+
+    public func validate() throws {
+        for (index, count) in typeShardCounts.enumerated() where count <= 0 {
+            throw ValidationError.nonPositiveValue(field: "typeShardCounts[\(index)]", value: count)
+        }
+        guard !typeShardCounts.isEmpty else {
+            throw ValidationError.nonPositiveValue(field: "typeShardCounts.count", value: 0)
+        }
+        guard maxFilesPerShard > 0 else {
+            throw ValidationError.nonPositiveValue(field: "maxFilesPerShard", value: maxFilesPerShard)
+        }
+        guard maxFilesPerShardOps > 0 else {
+            throw ValidationError.nonPositiveValue(field: "maxFilesPerShardOps", value: maxFilesPerShardOps)
+        }
+        for (index, count) in operationLayerShardCounts.enumerated() where count <= 0 {
+            throw ValidationError.nonPositiveValue(field: "operationLayerShardCounts[\(index)]", value: count)
+        }
+        guard operationLayerShardCounts.count == typeShardCounts.count else {
+            throw ValidationError.shardCountMismatch(
+                expected: typeShardCounts.count,
+                actual: operationLayerShardCounts.count
+            )
+        }
+    }
+}
+
 /// A structure that contains configuration options for a single execution
 /// of the generator pipeline run.
 ///
@@ -73,6 +145,9 @@ public struct Config: Sendable {
     /// The maximum number of dependency-ordered layers emitted for generated types.
     public var dependencyLayerCount: Int?
 
+    /// Optional build-oriented balancing for dependency-layered types output.
+    public var sharding: ShardingConfig?
+
     /// Creates a configuration with the specified generator mode and imports.
     /// - Parameters:
     ///   - mode: The mode to use for generation.
@@ -99,7 +174,8 @@ public struct Config: Sendable {
         typeOverrides: TypeOverrides = .init(),
         featureFlags: FeatureFlags = [],
         maxDeclarationsPerFile: Int? = nil,
-        dependencyLayerCount: Int? = nil
+        dependencyLayerCount: Int? = nil,
+        sharding: ShardingConfig? = nil
     ) {
         self.mode = mode
         self.access = access
@@ -112,5 +188,6 @@ public struct Config: Sendable {
         self.featureFlags = featureFlags
         self.maxDeclarationsPerFile = maxDeclarationsPerFile
         self.dependencyLayerCount = dependencyLayerCount
+        self.sharding = sharding
     }
 }

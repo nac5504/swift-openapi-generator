@@ -58,10 +58,9 @@ struct SchemaDependencyGraph {
         return .init(edges: edges, stronglyConnectedComponents: scc, naturalLayerBySchema: naturalLayerBySchema)
     }
 
-    /// Maps natural graph depth into at most the requested number of contiguous layers.
+    /// Preserves the first requested dependency layers and folds deeper schemas into the final layer.
     func mappedLayers(requestedLayerCount: Int) -> [String: Int] {
-        guard naturalLayerCount > requestedLayerCount else { return naturalLayerBySchema }
-        return naturalLayerBySchema.mapValues { naturalLayer in naturalLayer * requestedLayerCount / naturalLayerCount }
+        naturalLayerBySchema.mapValues { min($0, requestedLayerCount - 1) }
     }
 
     /// Returns all schema references contained anywhere in a schema.

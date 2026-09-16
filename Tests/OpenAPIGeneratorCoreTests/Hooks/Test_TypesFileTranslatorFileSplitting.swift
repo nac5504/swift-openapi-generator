@@ -252,20 +252,95 @@ final class Test_TypesFileTranslatorFileSplitting: Test_Core {
 
         let lowestSchemas = try XCTUnwrap(outputByName["Types+Components+Schemas+Layer0.swift"])
         XCTAssertTrue(lowestSchemas.contains("struct A"))
-        XCTAssertTrue(lowestSchemas.contains("struct B"))
-        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Components+Schemas+Layer1.swift"]).contains("struct C"))
-        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Components+Schemas+Layer2.swift"]).contains("struct D"))
+        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Components+Schemas+Layer1.swift"]).contains("struct B"))
+        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Components+Schemas+Layer2.swift"]).contains("struct C"))
         let highestSchemas = try XCTUnwrap(outputByName["Types+Components+Schemas+Layer3.swift"])
+        XCTAssertTrue(highestSchemas.contains("struct D"))
         XCTAssertTrue(highestSchemas.contains("struct HelperOwner"))
 
-        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Components+Parameters+Layer2.swift"]).contains("HighParameter"))
+        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Components+Parameters+Layer3.swift"]).contains("HighParameter"))
         XCTAssertTrue(
-            try XCTUnwrap(outputByName["Types+Components+RequestBodies+Layer2.swift"]).contains("HighRequest")
+            try XCTUnwrap(outputByName["Types+Components+RequestBodies+Layer3.swift"]).contains("HighRequest")
         )
-        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Components+Responses+Layer2.swift"]).contains("HighResponse"))
-        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Components+Headers+Layer1.swift"]).contains("HighHeader"))
+        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Components+Responses+Layer3.swift"]).contains("HighResponse"))
+        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Components+Headers+Layer2.swift"]).contains("HighHeader"))
         XCTAssertTrue(try XCTUnwrap(outputByName["Types+Operations+Layer0.swift"]).contains("getLow"))
-        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Operations+Layer2.swift"]).contains("getHigh"))
+        XCTAssertTrue(try XCTUnwrap(outputByName["Types+Operations+Layer3.swift"]).contains("getHigh"))
+    }
+
+    func testOriginalShardCountsBalanceNamespaceSplitFilesAndKeepOverflowTogether() throws {
+        let input = InMemoryInputFile(
+            absolutePath: URL(string: "openapi.yaml")!,
+            contents: Data(Self.dependencyLayerSource.utf8)
+        )
+        let config = Config(
+            mode: .types,
+            access: .public,
+            namingStrategy: .defensive,
+            sharding: .init(
+                typeShardCounts: [2, 1],
+                maxFilesPerShard: 25,
+                maxFilesPerShardOps: 16,
+                operationLayerShardCounts: [2, 1]
+            )
+        )
+
+        let first = try runGenerator(input: input, config: config, diagnostics: AccumulatingDiagnosticCollector())
+        let second = try runGenerator(input: input, config: config, diagnostics: AccumulatingDiagnosticCollector())
+        let names = first.map(\.baseName)
+
+        XCTAssertEqual(names, second.map(\.baseName))
+        XCTAssertEqual(first.map(\.contents), second.map(\.contents))
+        XCTAssertTrue(names.contains("Types+Components+Schemas+Layer0+Shard0.swift"))
+        XCTAssertTrue(names.contains("Types+Components+Schemas+Layer0+Shard1.swift"))
+        XCTAssertTrue(names.contains("Types+Components+Schemas+Layer1+Shard0.swift"))
+        XCTAssertTrue(names.contains("Types+Components+Schemas+Layer1+Shard0+24.swift"))
+        XCTAssertTrue(names.contains("Types+Operations+Layer0+Shard0.swift"))
+        XCTAssertTrue(names.contains("Types+Operations+Layer0+Shard1.swift"), "Configured empty shards are preserved.")
+        XCTAssertTrue(names.contains("Types+Operations+Layer1+Shard0.swift"))
+        XCTAssertTrue(names.contains("Types+Operations+Layer1+Shard0+15.swift"))
+        XCTAssertTrue(names.contains("Types+Components+Parameters+Layer1.swift"))
+    }
+
+    func testShardingSplitsMutuallyRecursiveSchemasAcrossFilesWithinOneModuleShard() throws {
+        let schemas = (0..<13).map { index in
+            let nextIndex = (index + 1) % 13
+            return """
+                    Node\(index):
+                      type: object
+                      properties:
+                        next:
+                          $ref: "#/components/schemas/Node\(nextIndex)"
+                """
+        }.joined(separator: "\n")
+        let source = """
+            openapi: "3.1.0"
+            info:
+              title: RecursiveSchemas
+              version: "1.0.0"
+            paths: {}
+            components:
+              schemas:
+            \(schemas)
+            """
+        let input = InMemoryInputFile(absolutePath: URL(string: "openapi.yaml")!, contents: Data(source.utf8))
+        let config = Config(
+            mode: .types,
+            access: .public,
+            namingStrategy: .defensive,
+            sharding: .init(
+                typeShardCounts: [1],
+                maxFilesPerShard: 2,
+                maxFilesPerShardOps: 1,
+                operationLayerShardCounts: [1]
+            )
+        )
+
+        let outputs = try runGenerator(input: input, config: config, diagnostics: AccumulatingDiagnosticCollector())
+        let schemaFiles = outputs.filter { $0.baseName.hasPrefix("Types+Components+Schemas+Layer0+Shard0") }
+
+        XCTAssertEqual(schemaFiles.count, 2)
+        XCTAssertTrue(schemaFiles.allSatisfy { String(decoding: $0.contents, as: UTF8.self).contains("struct Node") })
     }
 
     func testDependencyLayersComposeWithDeclarationSplittingAndKeepSCCsTogether() throws {

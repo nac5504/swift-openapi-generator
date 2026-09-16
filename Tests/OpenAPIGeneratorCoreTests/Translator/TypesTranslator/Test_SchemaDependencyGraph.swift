@@ -37,11 +37,11 @@ final class Test_SchemaDependencyGraph: XCTestCase {
         }
     }
 
-    func testDeepGraphFoldsProportionallyWithoutForwardDependencies() {
+    func testDeepGraphPreservesInitialLayersAndFoldsOverflowIntoFinalLayer() {
         let graph = SchemaDependencyGraph.build(from: Self.chain(length: 5))
         let mapped = graph.mappedLayers(requestedLayerCount: 3)
 
-        XCTAssertEqual(mapped, ["S0": 0, "S1": 0, "S2": 1, "S3": 1, "S4": 2])
+        XCTAssertEqual(mapped, ["S0": 0, "S1": 1, "S2": 2, "S3": 2, "S4": 2])
         for (schema, dependencies) in graph.edges {
             for dependency in dependencies { XCTAssertLessThanOrEqual(mapped[dependency]!, mapped[schema]!) }
         }

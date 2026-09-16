@@ -252,6 +252,33 @@ final class Test_GenerateOptions: XCTestCase {
         XCTAssertEqual(config.output?.dependencyLayerCount, 4)
     }
 
+    func testLoadsOriginalShardingConfigurationWithDeclarationSplitting() throws {
+        let configURL = try makeTemporaryConfig(
+            """
+            generate:
+              - types
+            sharding:
+              typeShardCounts: [4, 4, 4, 2, 2, 1]
+              maxFilesPerShard: 25
+              maxFilesPerShardOps: 16
+              operationLayerShardCounts: [4, 4, 2, 2, 2, 2]
+              modulePrefix: NetworkingCodegen
+            output:
+              maxDeclarationsPerFile: 100
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: configURL.deletingLastPathComponent()) }
+
+        let options = try _GenerateOptions.parse(["openapi.yaml", "--config", configURL.path])
+        let config = try XCTUnwrap(options.loadedConfig())
+
+        XCTAssertEqual(config.sharding?.typeShardCounts, [4, 4, 4, 2, 2, 1])
+        XCTAssertEqual(config.sharding?.operationLayerShardCounts, [4, 4, 2, 2, 2, 2])
+        XCTAssertEqual(config.sharding?.maxFilesPerShard, 25)
+        XCTAssertEqual(config.sharding?.maxFilesPerShardOps, 16)
+        XCTAssertEqual(config.output?.maxDeclarationsPerFile, 100)
+    }
+
     func testRejectsNonPositiveMaximumDeclarationsPerFileFromConfig() async throws {
         for invalidLimit in [0, -1] {
             let configURL = try makeTemporaryConfig(
