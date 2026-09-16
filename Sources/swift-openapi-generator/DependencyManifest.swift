@@ -28,9 +28,7 @@ struct DependencyManifest: Codable, Equatable {
         var value: String
     }
 
-    struct File: Codable, Equatable {
-        var path: String
-    }
+    struct File: Codable, Equatable { var path: String }
 
     static func make(input: Data, outputs: [InMemoryOutputFile]) -> Self {
         let sortedOutputs = outputs.sorted { $0.baseName < $1.baseName }

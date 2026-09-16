@@ -36,9 +36,7 @@ extension _GenerateOptions {
             throw ValidationError("Expected output.dependencyLayerCount to be greater than zero.")
         }
         if let sharding = config?.sharding {
-            do { try sharding.validate() } catch {
-                throw ValidationError("Invalid sharding configuration: \(error)")
-            }
+            do { try sharding.validate() } catch { throw ValidationError("Invalid sharding configuration: \(error)") }
             if let dependencyLayerCount = config?.output?.dependencyLayerCount,
                 dependencyLayerCount != sharding.layerCount
             {
@@ -57,8 +55,7 @@ extension _GenerateOptions {
         }
         let sortedModes = try resolvedModes(config)
         if config?.output?.dependencyManifest != nil {
-            guard config?.output?.dependencyLayerCount != nil || config?.sharding != nil,
-                sortedModes.contains(.types)
+            guard config?.output?.dependencyLayerCount != nil || config?.sharding != nil, sortedModes.contains(.types)
             else {
                 throw ValidationError(
                     "output.dependencyManifest requires types generation and dependency-layered output."

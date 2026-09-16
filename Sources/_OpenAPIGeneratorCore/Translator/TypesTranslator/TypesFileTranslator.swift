@@ -218,8 +218,7 @@ struct TypesFileTranslator: FileTranslator {
             component in component.compactMap { layerBySchema[$0] }.max() ?? 0
         }
         .mapValues { components in
-            components
-                .sorted { ($0.min() ?? "") < ($1.min() ?? "") }
+            components.sorted { ($0.min() ?? "") < ($1.min() ?? "") }
                 .map { component in component.sorted().flatMap { schemaGroupsByOwner[$0] ?? [] } }
         }
 
@@ -327,10 +326,7 @@ struct TypesFileTranslator: FileTranslator {
                 let layerGroups = groupsByLayer[layer] ?? []
                 let shardGroups: [[[Declaration]]]
                 if let shardCounts {
-                    shardGroups = Self.balanceDeclarationGroups(
-                        layerGroups,
-                        shardCount: shardCounts[layer]
-                    )
+                    shardGroups = Self.balanceDeclarationGroups(layerGroups, shardCount: shardCounts[layer])
                 } else {
                     shardGroups = [layerGroups]
                 }
@@ -434,14 +430,10 @@ struct TypesFileTranslator: FileTranslator {
                 let minimumDeclarationsPerFile = 12
                 let evenlyDistributedCount = (declarations.count + maximumFileCount - 1) / maximumFileCount
                 let declarationsPerFile = max(minimumDeclarationsPerFile, evenlyDistributedCount)
-                populatedChunks = stride(from: 0, to: declarations.count, by: declarationsPerFile).map { start in
-                    Array(declarations[start..<min(start + declarationsPerFile, declarations.count)])
-                }
+                populatedChunks = stride(from: 0, to: declarations.count, by: declarationsPerFile)
+                    .map { start in Array(declarations[start..<min(start + declarationsPerFile, declarations.count)]) }
             }
-            declarationChunks = populatedChunks + Array(
-                repeating: [],
-                count: maximumFileCount - populatedChunks.count
-            )
+            declarationChunks = populatedChunks + Array(repeating: [], count: maximumFileCount - populatedChunks.count)
         } else if let maxDeclarationsPerFile {
             var chunks: [[Declaration]] = []
             for group in declarationGroups {
@@ -475,23 +467,15 @@ struct TypesFileTranslator: FileTranslator {
     }
 
     /// Longest-processing-time packing from the original dependency sharding implementation.
-    private static func balanceDeclarationGroups(
-        _ groups: [[Declaration]],
-        shardCount: Int
-    ) -> [[[Declaration]]] {
-        var shards = Array(
-            repeating: (weight: 0, groups: [(index: Int, group: [Declaration])]()),
-            count: shardCount
-        )
+    private static func balanceDeclarationGroups(_ groups: [[Declaration]], shardCount: Int) -> [[[Declaration]]] {
+        var shards = Array(repeating: (weight: 0, groups: [(index: Int, group: [Declaration])]()), count: shardCount)
         var weighted: [(index: Int, group: [Declaration], weight: Int)] = []
         for (index, group) in groups.enumerated() {
             var weight = 0
             for declaration in group { weight += declarationNodeCount(declaration) }
             weighted.append((index: index, group: group, weight: max(1, weight)))
         }
-        weighted.sort { lhs, rhs in
-            lhs.weight == rhs.weight ? lhs.index < rhs.index : lhs.weight > rhs.weight
-        }
+        weighted.sort { lhs, rhs in lhs.weight == rhs.weight ? lhs.index < rhs.index : lhs.weight > rhs.weight }
         for item in weighted {
             let shard = shards.indices.min { lhs, rhs in
                 shards[lhs].weight == shards[rhs].weight ? lhs < rhs : shards[lhs].weight < shards[rhs].weight
@@ -499,25 +483,18 @@ struct TypesFileTranslator: FileTranslator {
             shards[shard].weight += item.weight
             shards[shard].groups.append((index: item.index, group: item.group))
         }
-        return shards.map { shard in
-            shard.groups.sorted { $0.index < $1.index }.map(\.group)
-        }
+        return shards.map { shard in shard.groups.sorted { $0.index < $1.index }.map(\.group) }
     }
 
     private static func declarationNodeCount(_ declaration: Declaration) -> Int {
         switch declaration {
-        case .commentable(_, let inner), .deprecated(_, let inner):
-            return 1 + declarationNodeCount(inner)
+        case .commentable(_, let inner), .deprecated(_, let inner): return 1 + declarationNodeCount(inner)
         case .extension(let description):
             return 1 + description.declarations.reduce(0) { $0 + declarationNodeCount($1) }
-        case .struct(let description):
-            return 1 + description.members.reduce(0) { $0 + declarationNodeCount($1) }
-        case .enum(let description):
-            return 1 + description.members.reduce(0) { $0 + declarationNodeCount($1) }
-        case .protocol(let description):
-            return 1 + description.members.reduce(0) { $0 + declarationNodeCount($1) }
-        case .variable, .typealias, .function, .enumCase:
-            return 1
+        case .struct(let description): return 1 + description.members.reduce(0) { $0 + declarationNodeCount($1) }
+        case .enum(let description): return 1 + description.members.reduce(0) { $0 + declarationNodeCount($1) }
+        case .protocol(let description): return 1 + description.members.reduce(0) { $0 + declarationNodeCount($1) }
+        case .variable, .typealias, .function, .enumCase: return 1
         }
     }
 }

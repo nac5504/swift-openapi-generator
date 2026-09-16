@@ -303,16 +303,18 @@ final class Test_TypesFileTranslatorFileSplitting: Test_Core {
     }
 
     func testShardingSplitsMutuallyRecursiveSchemasAcrossFilesWithinOneModuleShard() throws {
-        let schemas = (0..<13).map { index in
-            let nextIndex = (index + 1) % 13
-            return """
-                    Node\(index):
-                      type: object
-                      properties:
-                        next:
-                          $ref: "#/components/schemas/Node\(nextIndex)"
-                """
-        }.joined(separator: "\n")
+        let schemas = (0..<13)
+            .map { index in
+                let nextIndex = (index + 1) % 13
+                return """
+                        Node\(index):
+                          type: object
+                          properties:
+                            next:
+                              $ref: "#/components/schemas/Node\(nextIndex)"
+                    """
+            }
+            .joined(separator: "\n")
         let source = """
             openapi: "3.1.0"
             info:
