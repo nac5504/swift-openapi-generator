@@ -46,6 +46,13 @@ public struct ShardingConfig: Sendable, Codable, Equatable {
     /// The number of dependency layers represented by this configuration.
     public var layerCount: Int { typeShardCounts.count }
 
+    /// Creates a dependency-layered sharding configuration.
+    /// - Parameters:
+    ///   - typeShardCounts: The number of independently compiled schema shards in each dependency layer.
+    ///   - maxFilesPerShard: The maximum number of generated Swift files emitted for one schema shard.
+    ///   - maxFilesPerShardOps: The maximum number of generated Swift files emitted for one operation shard.
+    ///   - operationLayerShardCounts: The number of independently compiled operation shards in each dependency layer.
+    ///   - modulePrefix: An optional consumer module prefix retained for compatibility with the original sharding configuration.
     public init(
         typeShardCounts: [Int],
         maxFilesPerShard: Int = 25,
@@ -60,10 +67,15 @@ public struct ShardingConfig: Sendable, Codable, Equatable {
         self.modulePrefix = modulePrefix
     }
 
+    /// An error describing an invalid dependency-layered sharding configuration.
     public enum ValidationError: Error, CustomStringConvertible {
+        /// A sharding configuration field contains a nonpositive value.
         case nonPositiveValue(field: String, value: Int)
+
+        /// The operation and schema layer configurations contain different numbers of layers.
         case shardCountMismatch(expected: Int, actual: Int)
 
+        /// A human-readable description of the invalid configuration.
         public var description: String {
             switch self {
             case .nonPositiveValue(let field, let value): return "\(field) must be greater than zero, got \(value)."
@@ -73,6 +85,7 @@ public struct ShardingConfig: Sendable, Codable, Equatable {
         }
     }
 
+    /// Validates that every shard count and file limit is positive and both layer configurations have equal lengths.
     public func validate() throws {
         for (index, count) in typeShardCounts.enumerated() where count <= 0 {
             throw ValidationError.nonPositiveValue(field: "typeShardCounts[\(index)]", value: count)
@@ -163,6 +176,7 @@ public struct Config: Sendable {
     ///   - featureFlags: Additional pre-release features to enable.
     ///   - maxDeclarationsPerFile: The maximum number of declarations emitted in each split namespace file.
     ///   - dependencyLayerCount: The maximum number of dependency-ordered layers emitted for generated types.
+    ///   - sharding: Optional build-oriented balancing for dependency-layered types output.
     public init(
         mode: GeneratorMode,
         access: AccessModifier,
