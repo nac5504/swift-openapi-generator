@@ -29,7 +29,39 @@ extension _GenerateOptions {
     /// resolving options, generating code, and handling diagnostics.
     func runGenerator(outputDirectory: URL, pluginSource: PluginSource?, isDryRun: Bool) async throws {
         let config = try loadedConfig()
+        if let maxDeclarationsPerFile = config?.output?.maxDeclarationsPerFile, maxDeclarationsPerFile <= 0 {
+            throw ValidationError("Expected output.maxDeclarationsPerFile to be greater than zero.")
+        }
+        if let dependencyLayerCount = config?.output?.dependencyLayerCount, dependencyLayerCount <= 0 {
+            throw ValidationError("Expected output.dependencyLayerCount to be greater than zero.")
+        }
+        if let sharding = config?.sharding {
+            do { try sharding.validate() } catch { throw ValidationError("Invalid sharding configuration: \(error)") }
+            if let dependencyLayerCount = config?.output?.dependencyLayerCount,
+                dependencyLayerCount != sharding.layerCount
+            {
+                throw ValidationError(
+                    "Expected output.dependencyLayerCount to equal sharding.typeShardCounts.count when both are set."
+                )
+            }
+        }
+        if let dependencyManifest = config?.output?.dependencyManifest {
+            guard !dependencyManifest.isEmpty,
+                dependencyManifest == URL(fileURLWithPath: dependencyManifest).lastPathComponent,
+                dependencyManifest.hasSuffix(".json")
+            else {
+                throw ValidationError("Expected output.dependencyManifest to be a JSON file name without directories.")
+            }
+        }
         let sortedModes = try resolvedModes(config)
+        if config?.output?.dependencyManifest != nil {
+            guard config?.output?.dependencyLayerCount != nil || config?.sharding != nil, sortedModes.contains(.types)
+            else {
+                throw ValidationError(
+                    "output.dependencyManifest requires types generation and dependency-layered output."
+                )
+            }
+        }
         let resolvedAccessModifier = resolvedAccessModifier(config)
         let resolvedAdditionalImports = resolvedAdditionalImports(config)
         let resolvedAdditionalFileComments = resolvedAdditionalFileComments(config)
@@ -47,7 +79,10 @@ extension _GenerateOptions {
                 namingStrategy: resolvedNamingStragy,
                 nameOverrides: resolvedNameOverrides,
                 typeOverrides: resolvedTypeOverrides,
-                featureFlags: resolvedFeatureFlags
+                featureFlags: resolvedFeatureFlags,
+                maxDeclarationsPerFile: $0 == .types ? config?.output?.maxDeclarationsPerFile : nil,
+                dependencyLayerCount: $0 == .types ? config?.output?.dependencyLayerCount : nil,
+                sharding: $0 == .types ? config?.sharding : nil
             )
         }
         let (diagnostics, finalizeDiagnostics) = preparedDiagnosticsCollector(outputPath: diagnosticsOutputPath)
@@ -67,6 +102,11 @@ extension _GenerateOptions {
                 .sorted(by: { $0.key < $1.key })
                 .map { "\"\($0.key)\"->\"\($0.value)\"" }.joined(separator: ", "))
             - Feature flags: \(resolvedFeatureFlags.isEmpty ? "<none>" : resolvedFeatureFlags.map(\.rawValue).joined(separator: ", "))
+            - Maximum declarations per split types file: \(config?.output?.maxDeclarationsPerFile.map(String.init) ?? "<none>")
+            - Maximum dependency layers: \(config?.output?.dependencyLayerCount.map(String.init) ?? "<none>")
+            - Schema shard counts: \(config?.sharding?.typeShardCounts.map(String.init).joined(separator: ", ") ?? "<none>")
+            - Operation shard counts: \(config?.sharding?.operationLayerShardCounts.map(String.init).joined(separator: ", ") ?? "<none>")
+            - Dependency manifest: \(config?.output?.dependencyManifest ?? "<none>")
             - Output file names: \(sortedModes.flatMap { mode in OutputFileName.allCases.filter { mode.outputFileNames.contains($0) } }.map(\.rawValue).joined(separator: ", "))
             - Output directory: \(outputDirectory.path)
             - Diagnostics output path: \(diagnosticsOutputPath?.path ?? "<none - logs to stderr>")
@@ -84,6 +124,7 @@ extension _GenerateOptions {
                 pluginSource: pluginSource,
                 outputDirectory: outputDirectory,
                 isDryRun: isDryRun,
+                dependencyManifestFileName: config?.output?.dependencyManifest,
                 diagnostics: diagnostics
             )
             try finalizeDiagnostics()

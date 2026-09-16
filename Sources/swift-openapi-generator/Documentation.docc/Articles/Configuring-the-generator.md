@@ -48,6 +48,16 @@ The configuration file has the following keys:
 - `typeOverrides` (optional): Allows replacing a generated type with a custom type.
     - `schemas` (optional): a string to string dictionary. The key is the name of the schema, the last component of `#/components/schemas/Foo` (here, `Foo`). The value is the custom type name, such as `CustomFoo`. Check out details in [SOAR-0014](https://swiftpackageindex.com/apple/swift-openapi-generator/documentation/swift-openapi-generator/soar-0014).
 - `featureFlags` (optional): array of strings. Each string must be a valid feature flag to enable. For a list of currently supported feature flags, check out [FeatureFlags.swift](https://github.com/apple/swift-openapi-generator/blob/main/Sources/_OpenAPIGeneratorCore/FeatureFlags.swift).
+- `sharding` (optional): Balances dependency-layered schemas and operations into configured build shards.
+    - `typeShardCounts`: The schema shard count for each dependency layer.
+    - `operationLayerShardCounts`: The operation shard count for each dependency layer.
+    - `maxFilesPerShard`: The maximum namespace-split files in one schema shard.
+    - `maxFilesPerShardOps`: The maximum namespace-split files in one operation shard.
+    - `modulePrefix` (optional): A consumer module prefix retained for compatibility with existing configurations.
+- `output` (optional): Controls the generated source-file layout.
+    - `maxDeclarationsPerFile` (optional): A positive integer that limits the number of declarations in each split types namespace file.
+    - `dependencyLayerCount` (optional): A positive integer that limits the number of dependency-ordered layers in the generated types files.
+    - `dependencyManifest` (optional): A JSON file name for a generator-owned dependency-planning manifest written beside the generated Swift files. Requires `types` generation and dependency-layered output.
 
 ### Example config files
 
@@ -122,6 +132,94 @@ Types generation emits a fixed set of files organized by generated namespace:
 - `Types+Components+Headers.swift`
 
 > Important: The number and names of generated files are _not_ considered to be stable, and can change at any time. For details, check out <doc:API-stability-of-the-generator>.
+
+Each parent file owns its child namespace declarations, and the corresponding `+Namespace` files extend those
+namespaces with generated declarations.
+
+The file layout does not change generated Swift symbol names. For example, schema types remain nested under
+`Components.Schemas`. When invoking the generator directly or checking generated sources into a repository, retain all
+of the emitted files.
+
+The command-line tool and command plugin can further split the declaration-bearing namespace files by setting a
+maximum number of declarations per file:
+
+```yaml
+generate:
+  - types
+output:
+  maxDeclarationsPerFile: 100
+```
+
+For example, a `Schemas` namespace with 250 declarations keeps its first 100 declarations in
+`Types+Components+Schemas.swift`, then places the remaining declarations in two extension files:
+
+- `Types+Components+Schemas+1.swift`
+- `Types+Components+Schemas+2.swift`
+
+The command-line tool and command plugin can also group generated types into dependency-ordered layers:
+
+```yaml
+generate:
+  - types
+output:
+  dependencyLayerCount: 4
+  maxDeclarationsPerFile: 100
+  dependencyManifest: OpenAPIDependencyManifest.json
+```
+
+For build-oriented sharding, `typeShardCounts` replaces `dependencyLayerCount`; its length sets the layer count. The
+generator balances strongly connected schema groups by generated declaration weight, then evenly distributes the
+shard's declarations across its configured file budget:
+
+```yaml
+sharding:
+  typeShardCounts: [4, 4, 4, 2, 2, 1]
+  maxFilesPerShard: 25
+  maxFilesPerShardOps: 16
+  operationLayerShardCounts: [4, 4, 2, 2, 2, 2]
+output:
+  dependencyManifest: OpenAPIDependencyManifest.json
+```
+
+Schemas that mutually reference each other remain in one strongly connected group. The generator puts schemas with
+no dependencies in layer 0, then puts dependents in later layers so a generated declaration only references schemas
+in its own or an earlier layer. Reusable parameters, headers, request bodies, and responses retain their existing
+`Components` namespace and are assigned to the highest schema layer they reference. Operations are assigned using the
+same rule.
+
+The configured value is a maximum. If the schema graph is shallower, the generator does not emit empty layers. If the
+graph is deeper, the first layers retain their natural graph depths and all remaining depths are folded into the final
+overflow layer. Layered files use names such as `Types+Components+Schemas+Layer0.swift` and
+`Types+Operations+Layer2.swift`.
+
+Dependency grouping determines module shards. Inside each shard, schemas from strongly connected groups may be split
+across physical files because those files compile together in the same module. The generator emits at most
+`maxFilesPerShard` schema files and `maxFilesPerShardOps` operation files for each shard, with at least 12 declarations
+per nonempty file. Additional files append the existing numeric suffix, for example
+`Types+Components+Schemas+Layer2+Shard0+1.swift`.
+
+The build-tool plugin does not support either dynamic output option because the number of generated files depends on
+the input document, while build commands must declare their outputs before running the generator. Supporting these
+options there requires migrating the plugin to a prebuild command. Dependency manifests are likewise unavailable from
+the build-tool plugin. Direct CLI generation and the command plugin support all three options.
+
+#### Dependency planning manifest
+
+When `dependencyManifest` is configured, the generator writes a deterministic, versioned JSON manifest from the same
+in-memory generation result used to write the Swift files. The manifest is additive: generation is unchanged when the
+option is absent. Its top-level fields are:
+
+- `formatVersion`: The manifest schema version, currently `1`.
+- `inputDigest`: A SHA-256 digest of the exact input OpenAPI document bytes.
+- `outputDigest`: A SHA-256 digest of the ordered generated Swift file names and contents.
+- `files`: The complete generated Swift output inventory, sorted by relative file path.
+
+Each file record contains its safe relative `path`. Consumers can use the generator's documented file naming contract
+to apply build-system-specific module grouping and dependency policies.
+
+The manifest does not remove stale outputs from earlier invocations and is not written atomically with the Swift
+files. A later pre-analysis integration can use the complete inventory and digests to implement scoped cleanup,
+atomic replacement, and action-time verification.
 
 ### Document filtering
 
