@@ -334,6 +334,18 @@ struct TypesFileTranslator: FileTranslator {
             }
         }
 
+        func reusableComponentImports(
+            for layer: Int,
+            groupsByLayer: [Int: [[Declaration]]]
+        ) -> [ImportDescription] {
+            guard usesModuleContract, let prefix = shardingConfig.modulePrefix else { return [] }
+            // Empty padded namespace files only extend a namespace declared by the
+            // components base module. Avoid making those files wait for schemas they
+            // do not reference.
+            guard !(groupsByLayer[layer] ?? []).isEmpty else { return [moduleImport(prefix + "Components")] }
+            return schemaModuleNames(through: layer).map { moduleImport($0) }
+        }
+
         appendLayerFiles(
             groupsByLayer: schemaLayerGroups,
             namespace: "Components.Schemas",
@@ -357,41 +369,45 @@ struct TypesFileTranslator: FileTranslator {
                 }
             }
         )
+        let parameterGroupsByLayer = groupsByLayer(parameterGroups, components: resolvedParameters) {
+            SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
+        }
         appendLayerFiles(
-            groupsByLayer: groupsByLayer(parameterGroups, components: resolvedParameters) {
-                SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
-            },
+            groupsByLayer: parameterGroupsByLayer,
             namespace: "Components.Parameters",
             baseFileName: OutputFileName.typesComponentsParameters.rawValue,
             fixedLayerCount: shardingConfig.layerCount,
-            importsForLayer: { _ in schemaModuleNames().map { moduleImport($0) } }
+            importsForLayer: { reusableComponentImports(for: $0, groupsByLayer: parameterGroupsByLayer) }
         )
+        let requestBodyGroupsByLayer = groupsByLayer(requestBodyGroups, components: resolvedRequestBodies) {
+            SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
+        }
         appendLayerFiles(
-            groupsByLayer: groupsByLayer(requestBodyGroups, components: resolvedRequestBodies) {
-                SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
-            },
+            groupsByLayer: requestBodyGroupsByLayer,
             namespace: "Components.RequestBodies",
             baseFileName: OutputFileName.typesComponentsRequestBodies.rawValue,
             fixedLayerCount: shardingConfig.layerCount,
-            importsForLayer: { _ in schemaModuleNames().map { moduleImport($0) } }
+            importsForLayer: { reusableComponentImports(for: $0, groupsByLayer: requestBodyGroupsByLayer) }
         )
+        let responseGroupsByLayer = groupsByLayer(responseGroups, components: resolvedResponses) {
+            SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
+        }
         appendLayerFiles(
-            groupsByLayer: groupsByLayer(responseGroups, components: resolvedResponses) {
-                SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
-            },
+            groupsByLayer: responseGroupsByLayer,
             namespace: "Components.Responses",
             baseFileName: OutputFileName.typesComponentsResponses.rawValue,
             fixedLayerCount: shardingConfig.layerCount,
-            importsForLayer: { _ in schemaModuleNames().map { moduleImport($0) } }
+            importsForLayer: { reusableComponentImports(for: $0, groupsByLayer: responseGroupsByLayer) }
         )
+        let headerGroupsByLayer = groupsByLayer(headerGroups, components: resolvedHeaders) {
+            SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
+        }
         appendLayerFiles(
-            groupsByLayer: groupsByLayer(headerGroups, components: resolvedHeaders) {
-                SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
-            },
+            groupsByLayer: headerGroupsByLayer,
             namespace: "Components.Headers",
             baseFileName: OutputFileName.typesComponentsHeaders.rawValue,
             fixedLayerCount: shardingConfig.layerCount,
-            importsForLayer: { _ in schemaModuleNames().map { moduleImport($0) } }
+            importsForLayer: { reusableComponentImports(for: $0, groupsByLayer: headerGroupsByLayer) }
         )
         appendLayerFiles(
             groupsByLayer: operationGroupsByLayer,

@@ -58,6 +58,12 @@ final class Test_DependencySharding: XCTestCase {
             try XCTUnwrap(outputByName["Types_root.swift"])
                 .contains("public import NetworkingCodegenComponentsNamespaces")
         )
+        let emptyParameterLayer = try XCTUnwrap(outputByName["Types+Components+Parameters+Layer1.swift"])
+        XCTAssertTrue(emptyParameterLayer.contains("public import NetworkingCodegenComponents"))
+        XCTAssertFalse(emptyParameterLayer.contains("public import NetworkingCodegenTypes_L1_1"))
+
+        let responseLayer = try XCTUnwrap(outputByName["Types+Components+Responses+Layer1.swift"])
+        XCTAssertTrue(responseLayer.contains("public import NetworkingCodegenTypes_L1_1"))
     }
 
     private static let source = """
