@@ -49,21 +49,19 @@ final class Test_DependencySharding: XCTestCase {
         XCTAssertNotNil(outputByName["NetworkingCodegenComponents_openapi_components_1_1.swift"])
         XCTAssertNotNil(outputByName["NetworkingCodegenTypes_L1_openapi_types_l1_1_2.swift"])
         XCTAssertNotNil(outputByName["networkingcodegenoperations_openapi_operations_l0_1_1.swift"])
-        XCTAssertNotNil(outputByName["Types+Components+Parameters+Layer1.swift"])
-        XCTAssertTrue(
+        XCTAssertNotNil(outputByName["Types+Components+Parameters.swift"])
+        XCTAssertNotNil(outputByName["Types+Components+RequestBodies.swift"])
+        XCTAssertNotNil(outputByName["Types+Components+Responses.swift"])
+        XCTAssertNotNil(outputByName["Types+Components+Headers.swift"])
+        XCTAssertFalse(
             try XCTUnwrap(outputByName["networkingcodegenoperations_openapi_operations_l1_1_1.swift"])
-                .contains("public import NetworkingCodegenComponentsNamespaces")
+                .contains("NetworkingCodegenComponentsNamespaces")
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             try XCTUnwrap(outputByName["Types_root.swift"])
-                .contains("public import NetworkingCodegenComponentsNamespaces")
+                .contains("NetworkingCodegenComponentsNamespaces")
         )
-        let emptyParameterLayer = try XCTUnwrap(outputByName["Types+Components+Parameters+Layer1.swift"])
-        XCTAssertTrue(emptyParameterLayer.contains("public import NetworkingCodegenComponents"))
-        XCTAssertFalse(emptyParameterLayer.contains("public import NetworkingCodegenTypes_L1_1"))
-
-        let responseLayer = try XCTUnwrap(outputByName["Types+Components+Responses+Layer1.swift"])
-        XCTAssertTrue(responseLayer.contains("public import NetworkingCodegenTypes_L1_1"))
+        XCTAssertNil(outputByName["Types+Components+Parameters+Layer1.swift"])
     }
 
     private static let source = """

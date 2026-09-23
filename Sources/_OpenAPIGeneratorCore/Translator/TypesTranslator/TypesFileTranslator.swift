@@ -143,37 +143,12 @@ struct TypesFileTranslator: FileTranslator {
                 .map { component in component.sorted().flatMap { schemaGroupsByOwner[$0] ?? [] } }
         }
 
-        let resolvedParameters = try doc.components.parameters.mapValues { try doc.components.assumeLookupOnce($0) }
-        let resolvedRequestBodies = try doc.components.requestBodies.mapValues {
-            try doc.components.assumeLookupOnce($0)
-        }
-        let resolvedResponses = try doc.components.responses.mapValues { try doc.components.assumeLookupOnce($0) }
-        let resolvedHeaders = try doc.components.headers.mapValues {
-            (header: Either<OpenAPI.Reference<OpenAPI.Header>, OpenAPI.Header>) in
-            try doc.components.assumeLookupOnce(header)
-        }
-
         func highestLayer(for references: Set<String>) -> Int { references.compactMap { layerBySchema[$0] }.max() ?? 0 }
 
-        func groupsByLayer<Component>(
-            _ groups: [OwnedDeclarations],
-            components: OpenAPI.ComponentDictionary<Component>,
-            references: (Component) -> Set<String>
-        ) -> [Int: [[Declaration]]] {
-            var result: [Int: [[Declaration]]] = [:]
-            for group in groups {
-                guard let key = OpenAPI.ComponentKey(rawValue: group.owner), let component = components[key] else {
-                    continue
-                }
-                result[highestLayer(for: references(component)), default: []].append(group.declarations)
-            }
-            return result
-        }
-
-        let parameterGroups = try translateComponentParameterDeclarationGroups(resolvedParameters)
-        let requestBodyGroups = try translateComponentRequestBodyDeclarationGroups(resolvedRequestBodies)
-        let responseGroups = try translateComponentResponseDeclarationGroups(resolvedResponses)
-        let headerGroups = try translateComponentHeaderDeclarationGroups(resolvedHeaders)
+        let reusableComponentNamespaces = try translateComponentNamespaceDescriptions(
+            doc.components,
+            multipartSchemaNames: multipartSchemaNames
+        ).filter { $0.outputFile != .typesComponentsSchemas }
 
         var operationGroupsByLayer: [Int: [[Declaration]]] = [:]
         for description in operationDescriptions.sorted(by: { $0.operationID < $1.operationID }) {
@@ -187,23 +162,22 @@ struct TypesFileTranslator: FileTranslator {
                 .enum(.init(accessModifier: config.access, name: Constants.Components.namespace, members: []))
             )
         )
-        let namespaces: [(name: String, comment: Comment?)] = [
-            (Constants.Components.Schemas.namespace, JSONSchema.sectionComment()),
-            (Constants.Components.Parameters.namespace, OpenAPI.Parameter.sectionComment()),
-            (Constants.Components.RequestBodies.namespace, OpenAPI.Request.sectionComment()),
-            (Constants.Components.Responses.namespace, OpenAPI.Response.sectionComment()),
-            (Constants.Components.Headers.namespace, OpenAPI.Header.sectionComment()),
-        ]
         let componentNamespacesRoot = CodeBlock.declaration(
             .extension(
                 accessModifier: nil,
                 onType: Constants.Components.namespace,
-                declarations: namespaces.map { namespace in
+                declarations: [
                     .commentable(
-                        namespace.comment,
-                        .enum(.init(accessModifier: config.access, name: namespace.name, members: []))
+                        JSONSchema.sectionComment(),
+                        .enum(
+                            .init(
+                                accessModifier: config.access,
+                                name: Constants.Components.Schemas.namespace,
+                                members: []
+                            )
+                        )
                     )
-                }
+                ]
             )
         )
         let operationsRoot = CodeBlock.declaration(
@@ -251,11 +225,9 @@ struct TypesFileTranslator: FileTranslator {
             return names
         }
 
-        let reusableComponentsModule = shardingConfig.modulePrefix.map { $0 + "ComponentsNamespaces" }
-
         let usesModuleContract = shardingConfig.modulePrefix != nil
         let rootImports = imports
-            + (schemaModuleNames() + (reusableComponentsModule.map { [$0] } ?? []) + operationModuleNames())
+            + (schemaModuleNames() + operationModuleNames())
                 .map(moduleImport)
         let componentBaseName = shardingConfig.modulePrefix.map { "\($0)Components_openapi_components.swift" }
             ?? OutputFileName.typesComponents.rawValue
@@ -286,7 +258,24 @@ struct TypesFileTranslator: FileTranslator {
                     codeBlocks: componentCodeBlocks
                 )
             ),
-        ]
+        ] + reusableComponentNamespaces.map { namespace in
+            .init(
+                name: namespace.outputFile.rawValue,
+                contents: .init(
+                    topComment: topComment,
+                    imports: imports,
+                    codeBlocks: [
+                        .declaration(
+                            .extension(
+                                accessModifier: nil,
+                                onType: Constants.Components.namespace,
+                                declarations: [namespace.declaration]
+                            )
+                        )
+                    ]
+                )
+            )
+        }
         if usesModuleContract {
             files.append(.init(
                 name: operationsBaseName,
@@ -334,18 +323,6 @@ struct TypesFileTranslator: FileTranslator {
             }
         }
 
-        func reusableComponentImports(
-            for layer: Int,
-            groupsByLayer: [Int: [[Declaration]]]
-        ) -> [ImportDescription] {
-            guard usesModuleContract, let prefix = shardingConfig.modulePrefix else { return [] }
-            // Empty padded namespace files only extend a namespace declared by the
-            // components base module. Avoid making those files wait for schemas they
-            // do not reference.
-            guard !(groupsByLayer[layer] ?? []).isEmpty else { return [moduleImport(prefix + "Components")] }
-            return schemaModuleNames(through: layer).map { moduleImport($0) }
-        }
-
         appendLayerFiles(
             groupsByLayer: schemaLayerGroups,
             namespace: "Components.Schemas",
@@ -369,46 +346,6 @@ struct TypesFileTranslator: FileTranslator {
                 }
             }
         )
-        let parameterGroupsByLayer = groupsByLayer(parameterGroups, components: resolvedParameters) {
-            SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
-        }
-        appendLayerFiles(
-            groupsByLayer: parameterGroupsByLayer,
-            namespace: "Components.Parameters",
-            baseFileName: OutputFileName.typesComponentsParameters.rawValue,
-            fixedLayerCount: shardingConfig.layerCount,
-            importsForLayer: { reusableComponentImports(for: $0, groupsByLayer: parameterGroupsByLayer) }
-        )
-        let requestBodyGroupsByLayer = groupsByLayer(requestBodyGroups, components: resolvedRequestBodies) {
-            SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
-        }
-        appendLayerFiles(
-            groupsByLayer: requestBodyGroupsByLayer,
-            namespace: "Components.RequestBodies",
-            baseFileName: OutputFileName.typesComponentsRequestBodies.rawValue,
-            fixedLayerCount: shardingConfig.layerCount,
-            importsForLayer: { reusableComponentImports(for: $0, groupsByLayer: requestBodyGroupsByLayer) }
-        )
-        let responseGroupsByLayer = groupsByLayer(responseGroups, components: resolvedResponses) {
-            SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
-        }
-        appendLayerFiles(
-            groupsByLayer: responseGroupsByLayer,
-            namespace: "Components.Responses",
-            baseFileName: OutputFileName.typesComponentsResponses.rawValue,
-            fixedLayerCount: shardingConfig.layerCount,
-            importsForLayer: { reusableComponentImports(for: $0, groupsByLayer: responseGroupsByLayer) }
-        )
-        let headerGroupsByLayer = groupsByLayer(headerGroups, components: resolvedHeaders) {
-            SchemaDependencyGraph.schemaReferences(in: $0, components: doc.components)
-        }
-        appendLayerFiles(
-            groupsByLayer: headerGroupsByLayer,
-            namespace: "Components.Headers",
-            baseFileName: OutputFileName.typesComponentsHeaders.rawValue,
-            fixedLayerCount: shardingConfig.layerCount,
-            importsForLayer: { reusableComponentImports(for: $0, groupsByLayer: headerGroupsByLayer) }
-        )
         appendLayerFiles(
             groupsByLayer: operationGroupsByLayer,
             namespace: Constants.Operations.namespace,
@@ -419,8 +356,7 @@ struct TypesFileTranslator: FileTranslator {
             importsForLayer: { layer in
                 guard usesModuleContract else { return [] }
                 let operations = shardingConfig.modulePrefix.map { [moduleImport($0 + "Operations")] } ?? []
-                let reusable = reusableComponentsModule.map { [moduleImport($0)] } ?? []
-                return operations + reusable + schemaModuleNames(through: layer).map { moduleImport($0) }
+                return operations + schemaModuleNames(through: layer).map { moduleImport($0) }
             },
             fileName: shardingConfig.modulePrefix.map { prefix in
                 { layer, shard, file in
