@@ -51,6 +51,9 @@ struct _UserConfig: Codable {
     /// A set of features to explicitly enable.
     var featureFlags: FeatureFlags?
 
+    /// Build-oriented balancing for dependency-layered types output.
+    var sharding: ShardingConfig?
+
     /// A set of raw values corresponding to the coding keys of this struct.
     static let codingKeysRawValues = Set(CodingKeys.allCases.map({ $0.rawValue }))
 
@@ -64,6 +67,7 @@ struct _UserConfig: Codable {
         case nameOverrides
         case typeOverrides
         case featureFlags
+        case sharding
     }
 
     /// A container of type overrides.
@@ -71,4 +75,5 @@ struct _UserConfig: Codable {
         /// A dictionary of overrides for replacing the types generated from schemas with manually provided types.
         var schemas: [String: String]?
     }
+
 }
