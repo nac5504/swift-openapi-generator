@@ -27,6 +27,9 @@ struct ImportDescription: Equatable, Codable {
     /// For example, if there are type imports like `import Foo.Bar`, they would be listed here.
     var moduleTypes: [String]?
 
+    /// Whether this import is re-exported to clients of the generated module.
+    var exported: Bool = false
+
     /// The name of the private interface for an `@_spi` import.
     ///
     /// For example, if `spi` was "Secret" and the module name was "Foo" then the import

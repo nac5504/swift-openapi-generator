@@ -187,12 +187,17 @@ struct TypesFileTranslator: FileTranslator {
             )
         )
 
-        func moduleImport(_ name: String) -> ImportDescription {
-            let accessModifier: AccessModifier? = switch config.access {
-            case .public, .package: config.access
-            default: nil
+        func moduleImport(_ name: String, exported: Bool = false) -> ImportDescription {
+            let accessModifier: AccessModifier?
+            if exported {
+                accessModifier = nil
+            } else {
+                accessModifier = switch config.access {
+                case .public, .package: config.access
+                default: nil
+                }
             }
-            return .init(moduleName: name, accessModifier: accessModifier)
+            return .init(moduleName: name, exported: exported, accessModifier: accessModifier)
         }
 
         func schemaModuleNames(through layer: Int? = nil) -> [String] {
@@ -228,7 +233,7 @@ struct TypesFileTranslator: FileTranslator {
         let usesModuleContract = shardingConfig.modulePrefix != nil
         let rootImports = imports
             + (schemaModuleNames() + operationModuleNames())
-                .map(moduleImport)
+                .map { moduleImport($0, exported: true) }
         let componentBaseName = shardingConfig.modulePrefix.map { "\($0)Components_openapi_components.swift" }
             ?? OutputFileName.typesComponents.rawValue
         let operationsBaseName = shardingConfig.modulePrefix.map { "\($0)Operations_openapi_operations.swift" }

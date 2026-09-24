@@ -156,9 +156,10 @@ struct TextBasedRenderer: RendererProtocol {
         }
 
         func render(preconcurrency: Bool) {
+            let exportedPrefix = description.exported ? "@_exported " : ""
             let spiPrefix = description.spi.map { "@_spi(\($0)) " } ?? ""
             let preconcurrencyPrefix = preconcurrency ? "@preconcurrency " : ""
-            let attributePrefix = "\(preconcurrencyPrefix)\(spiPrefix)"
+            let attributePrefix = "\(preconcurrencyPrefix)\(exportedPrefix)\(spiPrefix)"
             if let moduleTypes = description.moduleTypes {
                 for type in moduleTypes { writer.writeLine("\(attributePrefix)\(accessModifierPrefix)import \(type)") }
             } else {
