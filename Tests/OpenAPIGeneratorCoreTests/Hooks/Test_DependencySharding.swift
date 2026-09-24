@@ -57,6 +57,14 @@ final class Test_DependencySharding: XCTestCase {
             try XCTUnwrap(outputByName["Types_root.swift"])
                 .contains("@_exported import NetworkingCodegenComponents_1")
         )
+        XCTAssertTrue(
+            try XCTUnwrap(outputByName["networkingcodegenoperations_openapi_operations_l1_1_1.swift"])
+                .contains("\nimport NetworkingCodegenComponents_1\n")
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(outputByName["networkingcodegenoperations_openapi_operations_l1_1_1.swift"])
+                .contains("public import NetworkingCodegenComponents_1")
+        )
         XCTAssertFalse(
             try XCTUnwrap(outputByName["networkingcodegenoperations_openapi_operations_l1_1_1.swift"])
                 .contains("NetworkingCodegenComponentsNamespaces")

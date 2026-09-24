@@ -188,16 +188,7 @@ struct TypesFileTranslator: FileTranslator {
         )
 
         func moduleImport(_ name: String, exported: Bool = false) -> ImportDescription {
-            let accessModifier: AccessModifier?
-            if exported {
-                accessModifier = nil
-            } else {
-                accessModifier = switch config.access {
-                case .public, .package: config.access
-                default: nil
-                }
-            }
-            return .init(moduleName: name, exported: exported, accessModifier: accessModifier)
+            .init(moduleName: name, exported: exported, setsAccessModifier: false)
         }
 
         func schemaModuleNames(through layer: Int? = nil) -> [String] {
